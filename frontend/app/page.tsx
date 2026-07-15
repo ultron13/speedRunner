@@ -28,6 +28,34 @@ import { ActivityLog } from "@/components/integrations/ActivityLog";
 import { CustomChartsBuilder } from "@/components/analytics/CustomChartsBuilder";
 import { ComparisonTool } from "@/components/analytics/ComparisonTool";
 import { GlobalFilters } from "@/components/analytics/GlobalFilters";
+import { ExportDashboard } from "@/components/sharing/ExportDashboard";
+import { ShareableLinks } from "@/components/sharing/ShareableLinks";
+import { EmailReports } from "@/components/sharing/EmailReports";
+import { DataImport } from "@/components/sharing/DataImport";
+import { GlobalSearch } from "@/components/search/GlobalSearch";
+import { SystemHealth } from "@/components/monitoring/SystemHealth";
+import { PerformanceMonitor } from "@/components/monitoring/PerformanceMonitor";
+import { ErrorTracker } from "@/components/monitoring/ErrorTracker";
+import { AuditTrail } from "@/components/monitoring/AuditTrail";
+import { TeamWorkspaces } from "@/components/collaboration/TeamWorkspaces";
+import { UserActivityFeed } from "@/components/collaboration/UserActivityFeed";
+import { TestConfigurations } from "@/components/testing/TestConfigurations";
+import { ChaosScenarios } from "@/components/testing/ChaosScenarios";
+import { LoadProfiles } from "@/components/testing/LoadProfiles";
+import { OnlineUsers } from "@/components/realtime/OnlineUsers";
+import { RealTimeNotifications } from "@/components/realtime/RealTimeNotifications";
+import { AnomalyDetection } from "@/components/ai/AnomalyDetection";
+import { PredictiveAnalytics } from "@/components/ai/PredictiveAnalytics";
+import { SmartRecommendations } from "@/components/ai/SmartRecommendations";
+import { AdvancedCharts } from "@/components/reporting/AdvancedCharts";
+import { ReportTemplates } from "@/components/reporting/ReportTemplates";
+import { ScheduledReports } from "@/components/reporting/ScheduledReports";
+import { TwoFactorAuth } from "@/components/security/TwoFactorAuth";
+import { SessionManagement } from "@/components/security/SessionManagement";
+import { ComplianceAudit } from "@/components/security/ComplianceAudit";
+import { SecurityAlerts } from "@/components/security/SecurityAlerts";
+import { MobileNav } from "@/components/mobile/MobileNav";
+import { OfflineIndicator } from "@/components/mobile/OfflineIndicator";
 import { ToastContainer } from "@/components/ui/toast";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useSimulation } from "@/hooks/useSimulation";
@@ -164,6 +192,54 @@ export default function DashboardPage() {
                 console.log("Filters applied:", filters);
               }} />
             </div>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <ExportDashboard />
+              <ShareableLinks />
+            </div>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <EmailReports />
+              <DataImport />
+            </div>
+            <GlobalSearch />
+            <div className="grid gap-6 xl:grid-cols-2">
+              <SystemHealth />
+              <PerformanceMonitor />
+            </div>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <ErrorTracker />
+              <AuditTrail />
+            </div>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <TeamWorkspaces />
+              <UserActivityFeed />
+            </div>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <TestConfigurations />
+              <ChaosScenarios />
+            </div>
+            <LoadProfiles />
+            <div className="grid gap-6 xl:grid-cols-2">
+              <OnlineUsers />
+              <RealTimeNotifications />
+            </div>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <AnomalyDetection />
+              <PredictiveAnalytics />
+            </div>
+            <SmartRecommendations />
+            <div className="grid gap-6 xl:grid-cols-2">
+              <AdvancedCharts />
+              <ReportTemplates />
+            </div>
+            <ScheduledReports />
+            <div className="grid gap-6 xl:grid-cols-2">
+              <TwoFactorAuth />
+              <SessionManagement />
+            </div>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <ComplianceAudit />
+              <SecurityAlerts />
+            </div>
           </>
         )}
         <BulkActions />
@@ -171,7 +247,9 @@ export default function DashboardPage() {
       <DashboardCustomizer />
       <CreateTestModal />
       <ToastContainer toasts={toasts} onRemove={removeToast} />
-      <div className="fixed bottom-4 left-4 text-xs text-slate-400 dark:text-slate-500">
+      <MobileNav activeSection="dashboard" onNavigate={(section) => console.log("Navigate to:", section)} />
+      <OfflineIndicator />
+      <div className="fixed bottom-4 left-4 hidden text-xs text-slate-400 dark:text-slate-500 lg:block">
         <kbd className="rounded border px-1.5 py-0.5 dark:border-slate-600">Ctrl+K</kbd> Search
         <span className="mx-2">|</span>
         <kbd className="rounded border px-1.5 py-0.5 dark:border-slate-600">Ctrl+N</kbd> New Test

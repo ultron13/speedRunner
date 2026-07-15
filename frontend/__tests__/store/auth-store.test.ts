@@ -149,4 +149,77 @@ describe("auth store", () => {
     useAuthStore.getState().clearError();
     expect(useAuthStore.getState().error).toBeNull();
   });
+
+  it("prevents duplicate email creation", async () => {
+    await useAuthStore.getState().login({
+      email: "admin@example.com",
+      password: "admin123",
+    });
+
+    const result = useAuthStore.getState().createUser({
+      email: "admin@example.com",
+      name: "Duplicate",
+      password: "pass123",
+      role: "editor",
+    });
+
+    expect(result).toBeNull();
+    expect(useAuthStore.getState().error).toBe("Email already exists");
+  });
+
+  it("prevents deleting own account", async () => {
+    await useAuthStore.getState().login({
+      email: "admin@example.com",
+      password: "admin123",
+    });
+
+    const userId = useAuthStore.getState().user?.id;
+    useAuthStore.getState().deleteUser(userId!);
+    expect(useAuthStore.getState().error).toBe("Cannot delete your own account");
+  });
+
+  it("updates user profile", async () => {
+    await useAuthStore.getState().login({
+      email: "admin@example.com",
+      password: "admin123",
+    });
+
+    const userId = useAuthStore.getState().user?.id;
+    useAuthStore.getState().updateUser(userId!, { name: "Updated Name" });
+    expect(useAuthStore.getState().user?.name).toBe("Updated Name");
+  });
+
+  it("returns false for permissions when not authenticated", () => {
+    expect(useAuthStore.getState().hasPermission("read", "tests")).toBe(false);
+  });
+
+  it("handles editor permissions correctly", async () => {
+    await useAuthStore.getState().login({
+      email: "editor@example.com",
+      password: "editor123",
+    });
+
+    expect(useAuthStore.getState().hasPermission("create", "tests")).toBe(true);
+    expect(useAuthStore.getState().hasPermission("delete", "tests")).toBe(false);
+    expect(useAuthStore.getState().hasPermission("read", "users")).toBe(false);
+  });
+
+  it("persists auth to localStorage", async () => {
+    await useAuthStore.getState().login({
+      email: "admin@example.com",
+      password: "admin123",
+    });
+
+    expect(localStorageMock.setItem).toHaveBeenCalled();
+  });
+
+  it("clears auth from localStorage on logout", async () => {
+    await useAuthStore.getState().login({
+      email: "admin@example.com",
+      password: "admin123",
+    });
+
+    useAuthStore.getState().logout();
+    expect(localStorageMock.removeItem).toHaveBeenCalled();
+  });
 });

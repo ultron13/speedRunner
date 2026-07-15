@@ -67,4 +67,30 @@ describe("createTestSchema", () => {
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.virtualUsers).toBe(200);
   });
+
+  it("rejects missing required fields", () => {
+    expect(createTestSchema.safeParse({}).success).toBe(false);
+    expect(createTestSchema.safeParse({ name: "Test" }).success).toBe(false);
+  });
+
+  it("rejects invalid URL formats", () => {
+    expect(createTestSchema.safeParse({ ...valid, targetUrl: "ftp://example.com" }).success).toBe(true);
+    expect(createTestSchema.safeParse({ ...valid, targetUrl: "not-a-url" }).success).toBe(false);
+    expect(createTestSchema.safeParse({ ...valid, targetUrl: "" }).success).toBe(false);
+  });
+
+  it("validates all script types", () => {
+    const types = ["HTTP", "TruClient", "JMeter"];
+    types.forEach((type) => {
+      expect(
+        createTestSchema.safeParse({ ...valid, scriptType: type }).success,
+      ).toBe(true);
+    });
+  });
+
+  it("handles edge cases for virtual users", () => {
+    expect(createTestSchema.safeParse({ ...valid, virtualUsers: -1 }).success).toBe(false);
+    expect(createTestSchema.safeParse({ ...valid, virtualUsers: 100000 }).success).toBe(false);
+    expect(createTestSchema.safeParse({ ...valid, virtualUsers: NaN }).success).toBe(false);
+  });
 });

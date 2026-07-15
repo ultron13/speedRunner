@@ -327,3 +327,428 @@ export interface GlobalFilters {
   statuses: RunStatus[];
   scriptTypes: ScriptType[];
 }
+
+export type ExportFormat = "pdf" | "csv" | "json" | "html";
+
+export interface ExportConfig {
+  format: ExportFormat;
+  sections: string[];
+  dateRange?: { start: string; end: string };
+  includeCharts: boolean;
+  includeMetrics: boolean;
+}
+
+export interface ShareableLink {
+  id: string;
+  url: string;
+  filters: GlobalFilters;
+  createdAt: string;
+  expiresAt: string | null;
+  accessCount: number;
+}
+
+export interface EmailReport {
+  id: string;
+  to: string[];
+  subject: string;
+  body: string;
+  attachmentFormat: ExportFormat;
+  sentAt: string | null;
+  status: "pending" | "sent" | "failed";
+}
+
+export interface ImportedData {
+  tests?: CreateTestInput[];
+  templates?: Omit<TestTemplate, "id" | "createdAt" | "usageCount">[];
+  count: number;
+  errors: string[];
+}
+
+export type SearchableEntityType = "test" | "run" | "template" | "schedule" | "user" | "webhook";
+
+export interface SearchResult {
+  id: string;
+  entityType: SearchableEntityType;
+  title: string;
+  subtitle: string;
+  matchField: string;
+  matchSnippet: string;
+  score: number;
+}
+
+export interface SearchFilters {
+  entityTypes: SearchableEntityType[];
+  dateRange?: { start: string; end: string };
+  statuses?: string[];
+}
+
+export interface SavedFilter {
+  id: string;
+  name: string;
+  filters: SearchFilters;
+  createdAt: string;
+  usageCount: number;
+}
+
+export interface SearchHistoryEntry {
+  id: string;
+  query: string;
+  filters: SearchFilters;
+  timestamp: string;
+  resultCount: number;
+}
+
+export interface GlobalSearchState {
+  query: string;
+  filters: SearchFilters;
+  results: SearchResult[];
+  history: SearchHistoryEntry[];
+  savedFilters: SavedFilter[];
+  isSearching: boolean;
+}
+
+export type HealthStatus = "healthy" | "warning" | "critical" | "unknown";
+
+export interface SystemHealth {
+  id: string;
+  component: string;
+  status: HealthStatus;
+  message: string;
+  lastChecked: string;
+  metrics?: Record<string, number>;
+}
+
+export interface PerformanceMetric {
+  id: string;
+  name: string;
+  value: number;
+  unit: string;
+  timestamp: string;
+  category: "render" | "network" | "memory" | "cpu";
+}
+
+export interface AppError {
+  id: string;
+  message: string;
+  stack?: string;
+  component?: string;
+  timestamp: string;
+  severity: "info" | "warning" | "error" | "critical";
+  resolved: boolean;
+}
+
+export interface AuditEntry {
+  id: string;
+  userId: string;
+  userName: string;
+  action: string;
+  resource: string;
+  resourceId?: string;
+  details?: Record<string, unknown>;
+  timestamp: string;
+  ipAddress?: string;
+}
+
+export interface MonitoringState {
+  health: SystemHealth[];
+  performance: PerformanceMetric[];
+  errors: AppError[];
+  auditLog: AuditEntry[];
+}
+
+export interface TeamWorkspace {
+  id: string;
+  name: string;
+  description: string;
+  ownerId: string;
+  members: WorkspaceMember[];
+  createdAt: string;
+  updatedAt: string;
+  isDefault: boolean;
+}
+
+export interface WorkspaceMember {
+  userId: string;
+  userName: string;
+  role: "owner" | "admin" | "member" | "viewer";
+  joinedAt: string;
+}
+
+export interface Comment {
+  id: string;
+  entityType: "test" | "run" | "template";
+  entityId: string;
+  userId: string;
+  userName: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string | null;
+  replies: Comment[];
+}
+
+export interface UserActivity {
+  id: string;
+  userId: string;
+  userName: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  entityName: string;
+  timestamp: string;
+  metadata?: Record<string, string>;
+}
+
+export interface CollaborationState {
+  workspaces: TeamWorkspace[];
+  comments: Comment[];
+  activities: UserActivity[];
+  activeWorkspaceId: string | null;
+}
+
+export interface TestConfiguration {
+  id: string;
+  name: string;
+  description: string;
+  targetUrl: string;
+  scriptType: ScriptType;
+  virtualUsers: number;
+  duration: number;
+  rampUpTime: number;
+  thinkTime: number;
+  headers: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ChaosScenarioType = "network" | "latency" | "error" | "timeout" | "resource";
+
+export interface ChaosScenario {
+  id: string;
+  name: string;
+  description: string;
+  type: ChaosScenarioType;
+  config: {
+    target: string;
+    intensity: number;
+    duration: number;
+    probability: number;
+  };
+  enabled: boolean;
+  createdAt: string;
+}
+
+export type LoadProfileType = "constant" | "ramp-up" | "ramp-down" | "spike" | "step" | "wave";
+
+export interface LoadProfile {
+  id: string;
+  name: string;
+  description: string;
+  type: LoadProfileType;
+  config: {
+    startUsers: number;
+    endUsers: number;
+    duration: number;
+    steps?: number;
+    peakDuration?: number;
+  };
+  createdAt: string;
+}
+
+export interface AdvancedTestState {
+  configurations: TestConfiguration[];
+  chaosScenarios: ChaosScenario[];
+  loadProfiles: LoadProfile[];
+}
+
+export interface OnlineUser {
+  id: string;
+  name: string;
+  avatar?: string;
+  status: "online" | "away" | "busy";
+  lastSeen: string;
+  currentPage?: string;
+  cursor?: { x: number; y: number };
+}
+
+export interface RealTimeNotification {
+  id: string;
+  type: "mention" | "comment" | "update" | "alert" | "system";
+  title: string;
+  message: string;
+  from?: string;
+  link?: string;
+  read: boolean;
+  timestamp: string;
+}
+
+export interface Annotation {
+  id: string;
+  entityType: "test" | "run" | "chart" | "metric";
+  entityId: string;
+  content: string;
+  color: string;
+  position?: { x: number; y: number };
+  userId: string;
+  userName: string;
+  createdAt: string;
+  resolved: boolean;
+}
+
+export interface RealTimeState {
+  onlineUsers: OnlineUser[];
+  notifications: RealTimeNotification[];
+  annotations: Annotation[];
+  isConnected: boolean;
+  lastPing: string | null;
+}
+
+export type AnomalySeverity = "low" | "medium" | "high" | "critical";
+
+export interface Anomaly {
+  id: string;
+  metric: string;
+  description: string;
+  severity: AnomalySeverity;
+  detectedAt: string;
+  value: number;
+  expectedRange: { min: number; max: number };
+  resolved: boolean;
+}
+
+export interface Prediction {
+  id: string;
+  metric: string;
+  currentValue: number;
+  predictedValue: number;
+  confidence: number;
+  timeframe: string;
+  trend: "increasing" | "decreasing" | "stable";
+  generatedAt: string;
+}
+
+export type RecommendationPriority = "low" | "medium" | "high";
+
+export interface Recommendation {
+  id: string;
+  title: string;
+  description: string;
+  priority: RecommendationPriority;
+  category: "performance" | "reliability" | "cost" | "security";
+  impact: string;
+  effort: string;
+  createdAt: string;
+  applied: boolean;
+}
+
+export interface AIInsight {
+  id: string;
+  type: "anomaly" | "prediction" | "recommendation" | "summary";
+  title: string;
+  content: string;
+  confidence: number;
+  generatedAt: string;
+}
+
+export interface AIAnalyticsState {
+  anomalies: Anomaly[];
+  predictions: Prediction[];
+  recommendations: Recommendation[];
+  insights: AIInsight[];
+}
+
+export type ChartType = "line" | "bar" | "area" | "scatter" | "heatmap" | "pie" | "radar";
+
+export interface AdvancedChart {
+  id: string;
+  name: string;
+  type: ChartType;
+  dataSource: string;
+  metrics: string[];
+  groupBy?: string;
+  filters?: Record<string, unknown>;
+  colors: string[];
+  createdAt: string;
+}
+
+export type ReportTemplateType = "executive" | "technical" | "comparison" | "trend" | "custom";
+
+export interface ReportTemplate {
+  id: string;
+  name: string;
+  description: string;
+  type: ReportTemplateType;
+  sections: ReportSection[];
+  createdAt: string;
+  usageCount: number;
+}
+
+export interface ReportSection {
+  id: string;
+  title: string;
+  type: "chart" | "table" | "summary" | "metrics";
+  config: Record<string, unknown>;
+}
+
+export interface ScheduledReport {
+  id: string;
+  name: string;
+  templateId: string;
+  frequency: "daily" | "weekly" | "monthly";
+  recipients: string[];
+  lastGenerated: string | null;
+  nextGeneration: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface AdvancedReportingState {
+  charts: AdvancedChart[];
+  templates: ReportTemplate[];
+  scheduledReports: ScheduledReport[];
+}
+
+export interface TwoFactorAuth {
+  enabled: boolean;
+  secret: string;
+  backupCodes: string[];
+  lastVerified: string | null;
+}
+
+export interface UserSession {
+  id: string;
+  userId: string;
+  device: string;
+  browser: string;
+  ipAddress: string;
+  location: string;
+  lastActive: string;
+  createdAt: string;
+  isCurrent: boolean;
+}
+
+export interface ComplianceRequirement {
+  id: string;
+  name: string;
+  description: string;
+  category: "data" | "access" | "audit" | "encryption";
+  status: "compliant" | "non-compliant" | "pending";
+  lastChecked: string;
+  details?: string;
+}
+
+export interface SecurityAlert {
+  id: string;
+  type: "login" | "password" | "api" | "data" | "compliance";
+  severity: "low" | "medium" | "high" | "critical";
+  message: string;
+  timestamp: string;
+  resolved: boolean;
+  userId?: string;
+}
+
+export interface SecurityState {
+  twoFactorAuth: TwoFactorAuth;
+  sessions: UserSession[];
+  compliance: ComplianceRequirement[];
+  securityAlerts: SecurityAlert[];
+}

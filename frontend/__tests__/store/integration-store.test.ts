@@ -114,4 +114,108 @@ describe("integration store", () => {
     useIntegrationStore.getState().clearActivity();
     expect(useIntegrationStore.getState().activityLog).toHaveLength(0);
   });
+
+  it("tests webhook successfully", async () => {
+    const webhook = useIntegrationStore.getState().createWebhook(
+      "Test Webhook",
+      "https://test.com/webhook",
+      ["test.completed"],
+    );
+
+    vi.spyOn(Math, "random").mockReturnValue(0.9); // Force success
+    const result = await useIntegrationStore.getState().testWebhook(webhook.id);
+    expect(result).toBe(true);
+    expect(useIntegrationStore.getState().webhooks[0].lastTriggeredAt).not.toBeNull();
+    vi.restoreAllMocks();
+  });
+
+  it("tests webhook with failure", async () => {
+    const webhook = useIntegrationStore.getState().createWebhook(
+      "Test Webhook",
+      "https://test.com/webhook",
+      ["test.completed"],
+    );
+
+    vi.spyOn(Math, "random").mockReturnValue(0.1); // Force failure
+    const result = await useIntegrationStore.getState().testWebhook(webhook.id);
+    expect(result).toBe(false);
+    expect(useIntegrationStore.getState().webhooks[0].failureCount).toBe(1);
+    vi.restoreAllMocks();
+  });
+
+  it("returns false for non-existent webhook test", async () => {
+    const result = await useIntegrationStore.getState().testWebhook("nonexistent");
+    expect(result).toBe(false);
+  });
+
+  it("generates API key with expiration", () => {
+    const expiresAt = new Date(Date.now() + 86400000).toISOString();
+    const key = useIntegrationStore.getState().generateAPIKey(
+      "Expiring Key",
+      [{ action: "read", resource: "tests" }],
+      expiresAt,
+    );
+
+    expect(key.expiresAt).toBe(expiresAt);
+  });
+
+  it("generates API key without expiration", () => {
+    const key = useIntegrationStore.getState().generateAPIKey(
+      "No Expiry Key",
+      [{ action: "read", resource: "tests" }],
+    );
+
+    expect(key.expiresAt).toBeNull();
+  });
+
+  it("persists API keys to localStorage", () => {
+    useIntegrationStore.getState().generateAPIKey("Persisted Key", [
+      { action: "read", resource: "tests" },
+    ]);
+
+    expect(localStorageMock.setItem).toHaveBeenCalled();
+  });
+
+  it("persists webhooks to localStorage", () => {
+    useIntegrationStore.getState().createWebhook(
+      "Persisted Webhook",
+      "https://test.com",
+      ["test.completed"],
+    );
+
+    expect(localStorageMock.setItem).toHaveBeenCalled();
+  });
+
+  it("persists activity log to localStorage", () => {
+    useIntegrationStore.getState().addActivity({
+      type: "key_generated",
+      description: "Test",
+    });
+
+    expect(localStorageMock.setItem).toHaveBeenCalled();
+  });
+
+  it("updates integration status directly", () => {
+    const integration = useIntegrationStore.getState().integrations[0];
+    useIntegrationStore.getState().updateIntegrationStatus(integration.id, "error");
+    expect(
+      useIntegrationStore.getState().integrations.find((i) => i.id === integration.id)?.status,
+    ).toBe("error");
+  });
+
+  it("creates webhook with multiple events", () => {
+    const events: Array<"test.created" | "test.started" | "test.completed" | "test.failed"> = [
+      "test.created",
+      "test.started",
+      "test.completed",
+      "test.failed",
+    ];
+    const webhook = useIntegrationStore.getState().createWebhook(
+      "Multi Event",
+      "https://test.com",
+      events,
+    );
+
+    expect(webhook.events).toHaveLength(4);
+  });
 });
