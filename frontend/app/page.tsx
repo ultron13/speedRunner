@@ -54,6 +54,9 @@ import { TwoFactorAuth } from "@/components/security/TwoFactorAuth";
 import { SessionManagement } from "@/components/security/SessionManagement";
 import { ComplianceAudit } from "@/components/security/ComplianceAudit";
 import { SecurityAlerts } from "@/components/security/SecurityAlerts";
+import { CICDPipelines } from "@/components/cicd/CICDPipelines";
+import { AutomationRules } from "@/components/cicd/AutomationRules";
+import { DeploymentTracking } from "@/components/cicd/DeploymentTracking";
 import { MobileNav } from "@/components/mobile/MobileNav";
 import { OfflineIndicator } from "@/components/mobile/OfflineIndicator";
 import { ToastContainer } from "@/components/ui/toast";
@@ -240,6 +243,11 @@ export default function DashboardPage() {
               <ComplianceAudit />
               <SecurityAlerts />
             </div>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <CICDPipelines />
+              <AutomationRules />
+            </div>
+            <DeploymentTracking />
           </>
         )}
         <BulkActions />

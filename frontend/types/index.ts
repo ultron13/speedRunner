@@ -752,3 +752,72 @@ export interface SecurityState {
   compliance: ComplianceRequirement[];
   securityAlerts: SecurityAlert[];
 }
+
+export type PipelineStageType = "build" | "test" | "deploy" | "notify" | "approve";
+
+export interface PipelineStage {
+  id: string;
+  name: string;
+  type: PipelineStageType;
+  config: Record<string, unknown>;
+  order: number;
+  enabled: boolean;
+}
+
+export interface CICDPipeline {
+  id: string;
+  name: string;
+  description: string;
+  stages: PipelineStage[];
+  trigger: "manual" | "push" | "schedule" | "webhook";
+  enabled: boolean;
+  lastRun: string | null;
+  createdAt: string;
+}
+
+export type AutomationTrigger = "test_completed" | "deployment" | "schedule" | "manual" | "webhook";
+
+export interface AutomationRule {
+  id: string;
+  name: string;
+  description: string;
+  trigger: AutomationTrigger;
+  conditions: AutomationCondition[];
+  actions: AutomationAction[];
+  enabled: boolean;
+  lastTriggered: string | null;
+  createdAt: string;
+}
+
+export interface AutomationCondition {
+  field: string;
+  operator: "equals" | "contains" | "greaterThan" | "lessThan";
+  value: string;
+}
+
+export interface AutomationAction {
+  type: "run_test" | "send_notification" | "update_status" | "create_ticket";
+  config: Record<string, unknown>;
+}
+
+export interface Deployment {
+  id: string;
+  version: string;
+  environment: "development" | "staging" | "production";
+  status: "pending" | "in_progress" | "completed" | "failed" | "rolled_back";
+  startedAt: string;
+  completedAt: string | null;
+  deployedBy: string;
+  changes: string[];
+  metrics?: {
+    responseTime: number;
+    errorRate: number;
+    throughput: number;
+  };
+}
+
+export interface CICDState {
+  pipelines: CICDPipeline[];
+  automationRules: AutomationRule[];
+  deployments: Deployment[];
+}
