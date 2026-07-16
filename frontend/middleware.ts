@@ -5,8 +5,37 @@ import { extractTokenFromHeader, verifyToken } from "./lib/auth";
 // Routes that don't require authentication
 const PUBLIC_PATHS = ["/", "/login", "/api/health", "/_next", "/favicon.ico"];
 
+// Routes that require admin role
+const ADMIN_PATHS = ["/api/admin", "/api/users"];
+
+// Routes that require editor or admin role
+const EDITOR_PATHS = ["/api/tests", "/api/runs"];
+
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(path + "/"));
+}
+
+function requiresRole(pathname: string, requiredRoles: string[]): { required: boolean; role: string } | null {
+  for (const path of ADMIN_PATHS) {
+    if (pathname.startsWith(path)) {
+      return { required: true, role: "admin" };
+    }
+  }
+  for (const path of EDITOR_PATHS) {
+    if (pathname.startsWith(path)) {
+      return { required: true, role: "editor" };
+    }
+  }
+  return null;
+}
+
+function hasRequiredRole(userRole: string, requiredRole: string): boolean {
+  const roleHierarchy: Record<string, number> = {
+    viewer: 0,
+    editor: 1,
+    admin: 2,
+  };
+  return (roleHierarchy[userRole] ?? 0) >= (roleHierarchy[requiredRole] ?? 0);
 }
 
 export function middleware(request: NextRequest) {
@@ -33,6 +62,15 @@ export function middleware(request: NextRequest) {
       return NextResponse.json(
         { error: "Invalid or expired token" },
         { status: 401 },
+      );
+    }
+
+    // Check role-based authorization
+    const roleCheck = requiresRole(pathname, ["admin", "editor"]);
+    if (roleCheck?.required && !hasRequiredRole(payload.role, roleCheck.role)) {
+      return NextResponse.json(
+        { error: `Insufficient permissions. Required: ${roleCheck.role}` },
+        { status: 403 },
       );
     }
 
