@@ -24,8 +24,9 @@ func (pe *PolicyEngine) AddRule(rule Rule) {
 // Evaluate evaluates all rules against an execution request
 func (pe *PolicyEngine) Evaluate(ctx context.Context, req ExecutionRequest) (*PolicyResult, error) {
 	result := &PolicyResult{
-		Allowed:    true,
-		Violations: make([]Violation, 0),
+		Allowed:     true,
+		Violations:  make([]Violation, 0),
+		EvaluatedAt: time.Now().UTC(),
 	}
 
 	for _, rule := range pe.rules {

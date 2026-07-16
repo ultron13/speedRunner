@@ -15,14 +15,21 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/belo/speedrunner/backend/internal/ai"
+	"github.com/belo/speedrunner/backend/internal/chatops"
 	"github.com/belo/speedrunner/backend/internal/config"
 	"github.com/belo/speedrunner/backend/internal/cost"
 	"github.com/belo/speedrunner/backend/internal/db"
 	"github.com/belo/speedrunner/backend/internal/db/queries"
+	"github.com/belo/speedrunner/backend/internal/enterprise"
+	"github.com/belo/speedrunner/backend/internal/impact"
 	"github.com/belo/speedrunner/backend/internal/integrations"
 	k8sclient "github.com/belo/speedrunner/backend/internal/k8s"
+	"github.com/belo/speedrunner/backend/internal/operator"
+	"github.com/belo/speedrunner/backend/internal/policy"
 	redisclient "github.com/belo/speedrunner/backend/internal/redis"
 	"github.com/belo/speedrunner/backend/internal/region"
+	"github.com/belo/speedrunner/backend/internal/testdata"
+	"github.com/belo/speedrunner/backend/internal/telemetry"
 )
 
 type Server struct {
@@ -49,7 +56,16 @@ type Server struct {
 	Cost         *cost.Estimator
 	AI           *ai.Detector
 	Regions      *region.Registry
+	Impact       *impact.Correlator
+	Operator     *operator.Reconciler
+	DataPools    *testdata.Manager
+	ChatOps      *chatops.Service
+	Policy       *policy.PolicyEngine
+	Virtual      *enterprise.VirtualRegistry
+	Baselines    *enterprise.BaselineStore
+	Quotas       *enterprise.QuotaStore
 	httpSrv      *http.Server
+	cancelOps    context.CancelFunc
 }
 
 type Deps struct {
@@ -66,10 +82,19 @@ func New(deps Deps) *Server {
 		DB:       deps.DB,
 		Redis:    deps.Redis,
 		K8s:      deps.K8s,
-		Webhooks: integrations.NewDispatcher(),
-		Cost:     cost.NewDefault(),
-		AI:       ai.NewDetector(),
-		Regions:  region.NewRegistry(),
+		Webhooks:  integrations.NewDispatcher(),
+		Cost:      cost.NewDefault(),
+		AI:        ai.NewDetector(),
+		Regions:   region.NewRegistry(),
+		Impact:    impact.NewCorrelator(),
+		DataPools: testdata.NewManager(deps.Redis),
+		Virtual:   enterprise.NewVirtualRegistry(),
+		Baselines: enterprise.NewBaselineStore(),
+		Quotas:    enterprise.NewQuotaStore(),
+		Policy:    policy.DefaultEnterpriseEngine(10000),
+	}
+	if deps.Config != nil {
+		s.Policy = policy.DefaultEnterpriseEngine(deps.Config.Engine.MaxVUs)
 	}
 	if deps.DB != nil {
 		pool := deps.DB.Pool
@@ -106,6 +131,12 @@ func New(deps Deps) *Server {
 			Redis:       deps.Redis,
 			Webhooks:    s.Webhooks,
 		})
+		// Kubernetes-style operator reconciler (in-process)
+		s.Operator = operator.NewReconciler(&runnerExecutor{runner: s.Runner, tests: s.Tests})
+		opsCtx, cancel := context.WithCancel(context.Background())
+		s.cancelOps = cancel
+		go s.Operator.Run(opsCtx)
+		s.ChatOps = chatops.New(&chatopsBridge{s: s})
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -118,11 +149,12 @@ func (s *Server) setupMiddleware() {
 	s.Router.Use(chimw.Logger)
 	s.Router.Use(chimw.Recoverer)
 	s.Router.Use(chimw.Heartbeat("/ping"))
+	s.Router.Use(telemetry.Middleware)
 	s.Router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
-		ExposedHeaders:   []string{"X-Request-Id"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Trace-Id", "X-Request-Id", "X-Run-Id", "Traceparent"},
+		ExposedHeaders:   []string{"X-Request-Id", "X-Trace-Id", "Traceparent"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
@@ -236,6 +268,61 @@ func (s *Server) setupRoutes() {
 			r.With(s.requirePermission("test:read")).Post("/ai/recommend", s.aiRecommendHandler)
 			r.With(s.requirePermission("run:read")).Post("/ai/anomaly", s.aiAnomalyHandler)
 			r.With(s.requirePermission("project:read")).Get("/regions", s.listRegionsHandler)
+
+			// Phase 4.1–4.10 better-feature roadmap APIs
+			r.With(s.requirePermission("test:read")).Get("/engines", s.listEnginesHandler)
+			r.With(s.requirePermission("run:read")).Get("/keda/recommend", s.kedaRecommendHandler)
+			r.With(s.requirePermission("run:read")).Post("/ai/anomaly/multi", s.aiMultiAnomalyHandler)
+			r.With(s.requirePermission("run:read")).Post("/impact/correlate", s.correlateBottlenecksHandler)
+			r.With(s.requirePermission("run:read")).Post("/cost/schedule-recommend", s.costScheduleRecommendHandler)
+
+			r.Route("/operator/runs", func(r chi.Router) {
+				r.With(s.requirePermission("run:read")).Get("/", s.listOperatorRunsHandler)
+				r.With(s.requirePermission("run:execute")).Post("/", s.createOperatorRunHandler)
+				r.With(s.requirePermission("run:read")).Get("/{name}", s.getOperatorRunHandler)
+				r.With(s.requirePermission("run:execute")).Delete("/{name}", s.deleteOperatorRunHandler)
+			})
+
+			r.Route("/gitops", func(r chi.Router) {
+				r.With(s.requirePermission("test:read")).Get("/tests/{id}", s.exportTestGitOpsHandler)
+				r.With(s.requirePermission("test:write")).Post("/tests/import", s.importTestGitOpsHandler)
+				r.With(s.requirePermission("test:read")).Post("/tests/{id}/drift", s.driftTestGitOpsHandler)
+			})
+
+			r.Route("/data-pools", func(r chi.Router) {
+				r.With(s.requirePermission("test:read")).Get("/", s.listDataPoolsHandler)
+				r.With(s.requirePermission("test:write")).Post("/", s.createDataPoolHandler)
+				r.With(s.requirePermission("test:write")).Post("/{id}/preload", s.preloadDataPoolHandler)
+				r.With(s.requirePermission("test:write")).Delete("/{id}", s.deleteDataPoolHandler)
+			})
+
+			// Phase 4.11–6.13 enterprise APIs
+			r.With(s.requirePermission("test:execute")).Post("/chatops", s.chatopsHandler)
+			r.With(s.requirePermission("test:read")).Post("/policy/evaluate", s.policyEvaluateHandler)
+			r.With(s.requirePermission("test:read")).Post("/ai/script-review", s.aiScriptReviewHandler)
+			r.With(s.requirePermission("test:read")).Post("/ai/generate-script", s.aiGenerateScriptHandler)
+			r.With(s.requirePermission("test:read")).Post("/ai/data-pool-recommend", s.aiDataPoolRecommendHandler)
+			r.With(s.requirePermission("test:read")).Post("/ai/synthetic-data", s.aiSyntheticDataHandler)
+			r.With(s.requirePermission("run:read")).Post("/ai/run-summary", s.aiRunSummaryHandler)
+			r.With(s.requirePermission("run:read")).Post("/ai/release-gate", s.aiReleaseGateHandler)
+			r.With(s.requirePermission("run:read")).Post("/ai/capacity-forecast", s.aiCapacityForecastHandler)
+			r.With(s.requirePermission("run:read")).Post("/ai/ops-assist", s.aiOpsAssistHandler)
+			r.With(s.requirePermission("run:read")).Post("/ai/defect-draft", s.aiDefectDraftHandler)
+			r.With(s.requirePermission("project:read")).Get("/readiness", s.readinessHandler)
+			r.With(s.requirePermission("project:read")).Get("/virtual-services", s.listVirtualServicesHandler)
+			r.With(s.requirePermission("project:write")).Post("/virtual-services", s.createVirtualServiceHandler)
+			r.With(s.requirePermission("sla:read")).Get("/baselines", s.listBaselinesHandler)
+			r.With(s.requirePermission("sla:write")).Post("/baselines", s.proposeBaselineHandler)
+			r.With(s.requirePermission("sla:write")).Post("/baselines/approve", s.approveBaselineHandler)
+			r.With(s.requirePermission("test:read")).Get("/golden-templates", s.goldenTemplatesHandler)
+			r.With(s.requirePermission("test:read")).Post("/impact/analyze", s.impactAnalysisHandler)
+			r.With(s.requirePermission("test:read")).Get("/chaos/catalog", s.chaosCatalogHandler)
+			r.With(s.requirePermission("project:read")).Post("/residency/check", s.residencyCheckHandler)
+			r.With(s.requirePermission("project:read")).Get("/quotas", s.listQuotasHandler)
+			r.With(s.requirePermission("project:read")).Post("/quotas/check", s.checkQuotaHandler)
+			r.With(s.requirePermission("admin:read")).Get("/cleanup/plan", s.cleanupPlanHandler)
+			r.With(s.requirePermission("project:read")).Post("/env/drift", s.envDriftHandler)
+			r.With(s.requirePermission("test:read")).Post("/contracts/validate", s.contractValidateHandler)
 
 			r.Route("/audit", func(r chi.Router) {
 				r.With(s.requirePermission("audit:read")).Get("/", s.listAuditLogsHandler)
@@ -360,6 +447,9 @@ func (s *Server) ListenAndServe() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.cancelOps != nil {
+		s.cancelOps()
+	}
 	if s.httpSrv != nil {
 		return s.httpSrv.Shutdown(ctx)
 	}

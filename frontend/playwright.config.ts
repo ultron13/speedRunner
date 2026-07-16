@@ -12,19 +12,17 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    // Explicitly disable Go API so E2E uses mock auth + local simulation
-    command: "npm run dev",
+    // Production-ish server avoids Turbopack inotify watch exhaustion in CI/dev agents
+    command: "npx next build && npx next start -H 127.0.0.1 -p 8787",
     url: "http://127.0.0.1:8787",
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 300_000,
     env: {
       ...process.env,
-      // Force client demo mode (no Go control plane)
       NEXT_PUBLIC_API_URL: "",
-      // Avoid Redis flakiness in CI — in-memory server state
       REDIS_URL: "",
       PORT: "8787",
-      WS_PORT: "8788",
+      NODE_ENV: "production",
     },
   },
 });

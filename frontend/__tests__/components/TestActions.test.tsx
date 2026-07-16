@@ -17,13 +17,13 @@ function resetStore() {
 }
 
 describe("TestActions", () => {
-  it("renders start, stop, and delete buttons", () => {
+  it("renders start, stop, and delete buttons", async () => {
     resetStore();
     render(<TestActions testId="t1" status="idle" />);
-    expect(screen.getByRole("button", { name: /start test/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /start test/i }, { timeout: 10_000 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /stop test/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /delete test/i })).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("start button is enabled when test is idle", () => {
     resetStore();

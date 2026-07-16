@@ -314,6 +314,104 @@ class APIClient {
     return this.request<Record<string, unknown>>(`/reports/${id}`);
   }
 
+  // Phase 4.x APIs
+  async getEngines() {
+    return this.request<Array<Record<string, unknown>>>("/engines");
+  }
+
+  async getKedaRecommend() {
+    return this.request<Record<string, unknown>>("/keda/recommend");
+  }
+
+  async multiAnomaly(series: Record<string, { history: Array<{ timestamp: number; value: number }>; current: number }>) {
+    return this.request<{ anomalyCount: number; findings: Array<Record<string, unknown>> }>(
+      "/ai/anomaly/multi",
+      { method: "POST", body: { series } },
+    );
+  }
+
+  async correlateBottlenecks(data: {
+    runId?: string;
+    errorRate?: number;
+    avgResponseTime?: number;
+    signals?: Array<Record<string, unknown>>;
+  }) {
+    return this.request<{ bottlenecks: Array<Record<string, unknown>> }>("/impact/correlate", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async exportTestGitOps(id: string, format: "yaml" | "json" = "json") {
+    if (format === "yaml") {
+      const root = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+      const base = root ? `${root}/api` : "/api";
+      const res = await fetch(`${base}/gitops/tests/${id}?format=yaml`, {
+        headers: this.getToken() ? { Authorization: `Bearer ${this.getToken()}` } : {},
+      });
+      return res.text();
+    }
+    return this.request<Record<string, unknown>>(`/gitops/tests/${id}?format=json`);
+  }
+
+  async importTestGitOps(manifest: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/gitops/tests/import", {
+      method: "POST",
+      body: manifest,
+    });
+  }
+
+  async getDataPools() {
+    return this.request<Array<Record<string, unknown>>>("/data-pools");
+  }
+
+  async createDataPool(data: {
+    name: string;
+    keyPrefix?: string;
+    itemCount?: number;
+    ttlSeconds?: number;
+    masked?: boolean;
+  }) {
+    return this.request<Record<string, unknown>>("/data-pools", { method: "POST", body: data });
+  }
+
+  async preloadDataPool(id: string, count?: number) {
+    return this.request<Record<string, unknown>>(`/data-pools/${id}/preload`, {
+      method: "POST",
+      body: { count },
+    });
+  }
+
+  async costScheduleRecommend(data: {
+    virtualUsers: number;
+    durationSec: number;
+    engine?: string;
+    urgency?: string;
+  }) {
+    return this.request<Record<string, unknown>>("/cost/schedule-recommend", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async createOperatorRun(data: {
+    name?: string;
+    testId?: string;
+    targetUrl: string;
+    virtualUsers?: number;
+    durationSec?: number;
+    engine?: string;
+  }) {
+    return this.request<Record<string, unknown>>("/operator/runs", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async listOperatorRuns() {
+    return this.request<Array<Record<string, unknown>>>("/operator/runs");
+  }
+
   // Auth
   async login(email: string, password: string) {
     return this.request<{ token: string; user: Record<string, unknown> }>("/auth/login", {

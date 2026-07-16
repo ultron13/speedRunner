@@ -14,9 +14,12 @@ import (
 
 	"github.com/belo/speedrunner/backend/internal/db/queries"
 	"github.com/belo/speedrunner/backend/internal/engine"
+	"github.com/belo/speedrunner/backend/internal/engine/gatling"
 	"github.com/belo/speedrunner/backend/internal/engine/httpengine"
 	"github.com/belo/speedrunner/backend/internal/engine/jmeter"
 	"github.com/belo/speedrunner/backend/internal/engine/k6"
+	"github.com/belo/speedrunner/backend/internal/engine/locust"
+	"github.com/belo/speedrunner/backend/internal/engine/playwright"
 	"github.com/belo/speedrunner/backend/internal/engine/simulate"
 	"github.com/belo/speedrunner/backend/internal/integrations"
 	k8sclient "github.com/belo/speedrunner/backend/internal/k8s"
@@ -97,9 +100,13 @@ func NewRunnerOrchestrator(cfg RunnerConfig) *RunnerOrchestrator {
 		if k6Image == "" {
 			k6Image = "grafana/k6:latest"
 		}
-		o.registry.Register(jmeter.New(cfg.K8s.Clientset, ns, jmImage))
-		o.registry.Register(k6.New(cfg.K8s.Clientset, ns, k6Image))
-		log.Printf("[runner] k8s engines registered (ns=%s jmeter=%s k6=%s)", ns, jmImage, k6Image)
+		cs := cfg.K8s.Clientset
+		o.registry.Register(jmeter.New(cs, ns, jmImage))
+		o.registry.Register(k6.New(cs, ns, k6Image))
+		o.registry.Register(gatling.New(cs, ns, ""))
+		o.registry.Register(locust.New(cs, ns, ""))
+		o.registry.Register(playwright.New(cs, ns, ""))
+		log.Printf("[runner] k8s engines registered (ns=%s): jmeter,k6,gatling,locust,playwright", ns)
 	}
 
 	log.Printf("[runner] mode=%s engines=%v", mode, o.registry.List())
@@ -177,8 +184,22 @@ func (o *RunnerOrchestrator) resolveEngine(scriptType string) string {
 				return "k6"
 			}
 			return "simulate"
-		case "HTTP", "TRUCLIENT":
-			// Prefer real HTTP for light targets when mode is auto
+		case "GATLING":
+			if _, err := o.registry.Get("gatling"); err == nil {
+				return "gatling"
+			}
+			return "simulate"
+		case "LOCUST":
+			if _, err := o.registry.Get("locust"); err == nil {
+				return "locust"
+			}
+			return "simulate"
+		case "PLAYWRIGHT", "TRUCLIENT":
+			if _, err := o.registry.Get("playwright"); err == nil {
+				return "playwright"
+			}
+			return "http"
+		case "HTTP":
 			return "http"
 		default:
 			return "simulate"
@@ -253,7 +274,8 @@ func (o *RunnerOrchestrator) Start(ctx context.Context, runID string, test *quer
 
 	// For K8s engines, also start local sim for live metric streaming
 	// (jobs do not emit continuous metrics until result collection is wired)
-	if engineName == "jmeter" || engineName == "k6" {
+	if engineName == "jmeter" || engineName == "k6" || engineName == "gatling" ||
+		engineName == "locust" || engineName == "playwright" {
 		if _, err := o.sim.Execute(ctx, req); err != nil {
 			log.Printf("[runner] sim companion start: %v", err)
 		}
@@ -290,7 +312,8 @@ func (o *RunnerOrchestrator) Start(ctx context.Context, runID string, test *quer
 	}
 
 	// Watch K8s job completion in background
-	if engineName == "jmeter" || engineName == "k6" {
+	if engineName == "jmeter" || engineName == "k6" || engineName == "gatling" ||
+		engineName == "locust" || engineName == "playwright" {
 		go o.watchJob(runID, engineName, time.Duration(duration+120)*time.Second)
 	}
 

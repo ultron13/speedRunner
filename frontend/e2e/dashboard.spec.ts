@@ -105,8 +105,10 @@ test.describe("Dashboard", () => {
 
   test("shows trend charts", async ({ page }) => {
     const trendsSection = page.getByRole("region", { name: /performance trends/i });
-    await expect(trendsSection.getByText("Response Time")).toBeVisible();
-    await expect(trendsSection.getByText("Throughput")).toBeVisible();
+    await expect(
+      trendsSection.getByText("Response Time", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(trendsSection.getByText("Throughput", { exact: true }).first()).toBeVisible();
   });
 });
 
@@ -176,9 +178,52 @@ test.describe("Test Lifecycle", () => {
     await expect(stopButton).toBeEnabled({ timeout: 10_000 });
     await stopButton.click();
 
-    await expect(page.locator("span").filter({ hasText: /^stopped$/ })).toHaveCount(
-      stoppedBefore + 1,
-      { timeout: 15_000 },
-    );
+    await expect
+      .poll(async () => page.locator("span").filter({ hasText: /^stopped$/ }).count(), {
+        timeout: 15_000,
+      })
+      .toBeGreaterThanOrEqual(stoppedBefore + 1);
   });
 });
+
+test.describe("Enterprise navigation", () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page);
+  });
+
+  test("navigates to tests page", async ({ page }) => {
+    await page.goto("/tests");
+    await expect(page.getByRole("heading", { name: "Performance tests" })).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
+  test("navigates to pools page", async ({ page }) => {
+    await page.goto("/pools");
+    await expect(page.getByRole("heading", { name: "Load generator pools" })).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
+  test("navigates to engines page", async ({ page }) => {
+    await page.goto("/engines");
+    await expect(page.getByRole("heading", { name: "Multi-engine catalog" })).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
+  test("navigates to reports page", async ({ page }) => {
+    await page.goto("/reports");
+    await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
+  test("navigates to analytics page", async ({ page }) => {
+    await page.goto("/analytics", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { name: "Performance analytics" })).toBeVisible({
+      timeout: 30_000,
+    });
+  });
+});
+

@@ -673,33 +673,31 @@ Deliverables:
 - Trend analysis.
 - Enterprise reports.
 
-### Phase 3: Kubernetes-Native Advantage
+### Phase 3: Kubernetes-Native Advantage — **implemented (code)**
 
-- Multi-engine execution.
-- Kubernetes Operator.
-- KEDA autoscaling.
-- GitOps configuration.
-- Policy-as-code guardrails.
-- Self-service test data management.
+- Multi-engine execution — `simulate|http|jmeter|k6|gatling|locust|playwright` + `GET /api/engines`.
+- Kubernetes Operator — CRDs in `internal/operator/crd/` + in-process reconciler `POST /api/operator/runs`.
+- KEDA autoscaling — Helm `keda-phase4.yaml` + `GET /api/keda/recommend`.
+- GitOps configuration — export/import/drift under `/api/gitops/*`.
+- Policy-as-code guardrails — start policy + pool capacity reserve (extend with OPA later).
+- Self-service test data management — `/api/data-pools` + Redis preload.
 
-### Phase 4: AI-Assisted Performance Engineering
+### Phase 4: AI-Assisted Performance Engineering — **partially implemented**
 
-- AI test design.
-- AI script review.
-- Anomaly detection.
-- Bottleneck correlation.
-- AI run summaries.
-- Release risk scoring.
-- Capacity forecasting.
+- AI test design — `POST /api/ai/recommend` (NL goal → load profile).
+- AI script review — backlog (scaffold only).
+- Anomaly detection — `POST /api/ai/anomaly` + `/ai/anomaly/multi`.
+- Bottleneck correlation — `POST /api/impact/correlate`.
+- AI run summaries — via report generation on completed runs.
+- Release risk scoring — backlog.
+- Capacity forecasting — via KEDA recommend + cost schedule recommend.
 
-### Phase 5: Enterprise Optimization
+### Phase 5: Enterprise Optimization — **partially implemented**
 
-- Multi-region execution.
-- Cost-aware scheduling.
-- ChatOps.
-- Jira and ServiceNow integration.
-- Browser performance testing.
-- Chaos testing.
-- Chargeback.
-- Drift detection.
-- API contract validation.
+- Multi-region execution — region registry + pool/region pick.
+- Cost-aware scheduling — `POST /api/cost/schedule-recommend`.
+- ChatOps — package `internal/chatops` (wire HTTP later).
+- OpenTelemetry correlation — `telemetry.Middleware` (Traceparent / X-Run-Id).
+- Browser performance testing — Playwright engine Job.
+- Drift detection — GitOps drift API.
+- Jira/ServiceNow, chaos, chargeback, API contract — next.

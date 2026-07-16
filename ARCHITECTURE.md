@@ -134,16 +134,39 @@ Set `NEXT_PUBLIC_API_URL=http://localhost:8080` on the Next.js app.
 | WS | Disabled when Go API is configured |
 | Banner | Shows engine mode + K8s readiness |
 
-## Phase roadmap
+## Phase roadmap (Implementation/32 §7 + Better Features §4)
 
-1. **Foundation (persist + auth)** — **complete**
-2. **Real execution** — **simulate + HTTP + JMeter/k6 K8s jobs wired**; result artifact collection next
-3. **LoadRunner parity** — schedules/SLA/templates done; pools & reporting next
-4. **UX routes** — multi-page portal
-5. **K8s depth** — operator, KEDA
-6. **Observability + CI gates** — OTEL exporters, gate endpoints
-7. **Real AI** — swap statistical detector for model-backed analysis
-8. **Integrations / multi-region** — packages scaffolded; persistence next
+| Phase | Scope | Status |
+| --- | --- | --- |
+| 1 | MVP enterprise platform | **complete** |
+| 2 | LoadRunner-class parity | **complete** |
+| 3 | UX multi-page portal | **complete** |
+| **4.1** | Multi-engine (JMeter/k6/Gatling/Locust/Playwright) | **complete** |
+| **4.2** | K8s Operator CRDs + in-process reconciler | **complete** |
+| **4.3** | KEDA ScaledObjects + recommend API | **complete** |
+| **4.4** | AI multi-metric anomaly detection | **complete** |
+| **4.5** | Bottleneck correlation API | **complete** |
+| **4.6** | GitOps export/import/drift | **complete** |
+| **4.7** | Multi-region registry (capacity pick) | **complete** |
+| **4.8** | Cost-aware schedule recommendations | **complete** |
+| **4.9** | Self-service test data pools | **complete** |
+| **4.10** | OpenTelemetry correlation middleware | **complete** |
+| 5+ | Chargeback, ChatOps persistence, real OTEL export, chaos | next |
+
+### Phase 4 API map
+
+| API | Purpose |
+| --- | --- |
+| `GET /api/engines` | Engine catalog |
+| `GET/POST /api/operator/runs` | Declarative TestRun reconcile |
+| `GET /api/keda/recommend` | Scale recommendations + sample YAML |
+| `POST /api/ai/anomaly/multi` | Multi-metric anomalies |
+| `POST /api/impact/correlate` | Bottleneck ranking |
+| `GET /api/gitops/tests/{id}` | Export YAML/JSON |
+| `POST /api/gitops/tests/import` | Import manifest |
+| `POST /api/cost/schedule-recommend` | Cost + window + region |
+| `GET/POST /api/data-pools` | Test data pools + preload |
+| Headers `Traceparent` / `X-Trace-Id` / `X-Run-Id` | OTEL correlation |
 
 ## Deferred UI modules (mock / localStorage)
 

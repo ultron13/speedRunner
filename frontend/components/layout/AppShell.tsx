@@ -29,6 +29,7 @@ const nav = [
   { href: "/schedules", label: "Schedules", icon: Calendar },
   { href: "/sla", label: "SLA", icon: Shield },
   { href: "/pools", label: "LG Pools", icon: Server },
+  { href: "/engines", label: "Engines", icon: Gauge },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
 ];

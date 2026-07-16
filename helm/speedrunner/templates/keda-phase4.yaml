@@ -1,0 +1,40 @@
+{{- if .Values.keda.enabled }}
+# Phase 4.3 — KEDA ScaledObjects for control plane workers
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "speedrunner.fullname" . }}-controller-workers
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "speedrunner.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "speedrunner.fullname" . }}-backend
+  minReplicaCount: {{ .Values.keda.controller.minReplicas | default 1 }}
+  maxReplicaCount: {{ .Values.keda.controller.maxReplicas | default 20 }}
+  triggers:
+    - type: redis
+      metadata:
+        address: {{ .Values.redis.host | default "redis" }}:{{ .Values.redis.port | default 6379 }}
+        listName: speedrunner:pending_runs
+        listLength: "5"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "speedrunner.fullname" . }}-result-ingestion
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "speedrunner.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "speedrunner.fullname" . }}-backend
+  minReplicaCount: {{ .Values.keda.ingestion.minReplicas | default 1 }}
+  maxReplicaCount: {{ .Values.keda.ingestion.maxReplicas | default 30 }}
+  triggers:
+    - type: redis
+      metadata:
+        address: {{ .Values.redis.host | default "redis" }}:{{ .Values.redis.port | default 6379 }}
+        listName: speedrunner:active_runs
+        listLength: "1"
+{{- end }}
