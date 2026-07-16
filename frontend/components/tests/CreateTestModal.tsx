@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createTestSchema, type CreateTestFormValues } from "@/lib/validation";
 import { useTestStore } from "@/store/test-store";
+import type { CreateTestInput } from "@/types";
 import type { z } from "zod";
 
 const defaults: CreateTestFormValues = {
@@ -22,13 +23,25 @@ const defaults: CreateTestFormValues = {
   virtualUsers: 100,
 };
 
-export function CreateTestModal() {
+export function CreateTestModal({ initialData }: { initialData?: CreateTestInput | null }) {
   const [open, setOpen] = useState(false);
   const createTest = useTestStore((state) => state.dispatchCreateTest);
   const form = useForm<z.input<typeof createTestSchema>>({
     resolver: zodResolver(createTestSchema),
     defaultValues: defaults,
   });
+
+  useEffect(() => {
+    if (initialData && open) {
+      form.reset({
+        name: initialData.name,
+        description: initialData.description ?? "",
+        scriptType: initialData.scriptType,
+        targetUrl: initialData.targetUrl,
+        virtualUsers: initialData.virtualUsers,
+      });
+    }
+  }, [initialData, open, form]);
 
   const close = () => {
     form.reset(defaults);

@@ -1,0 +1,84 @@
+# Local development overrides (minikube)
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+  hosts:
+    - host: speedrunner.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+env:
+  NODE_ENV: production
+  LOG_LEVEL: debug
+  K8S_IN_CLUSTER: "false"
+  K8S_EXECUTION_NS: marathonrunner-execution
+  K8S_SYSTEM_NS: marathonrunner-system
+
+# Backend
+backend:
+  image:
+    repository: speedrunner-backend
+    tag: latest
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  engine:
+    jmeterImage: speedrunner/jmeter:latest
+
+# Redis
+redis:
+  enabled: true
+  host: ""
+  port: 6379
+  password: ""
+
+redisStandalone:
+  enabled: true
+  storage:
+    enabled: true
+    size: 1Gi
+
+# PostgreSQL
+postgres:
+  enabled: true
+  host: ""
+  port: 5432
+  database: speedrunner
+  user: speedrunner
+  password: speedrunner_secret
+
+postgresStandalone:
+  enabled: true
+  storage:
+    enabled: true
+    size: 2Gi
+
+# Nginx
+nginx:
+  enabled: false
+  replicaCount: 1

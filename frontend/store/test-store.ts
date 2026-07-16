@@ -78,6 +78,8 @@ export interface TestStore {
   bulkDeleteTests: (testIds: string[]) => void;
   addTimelineEvent: (event: Omit<TimelineEvent, "id">) => void;
   getTimeline: (testId?: string) => TimelineEvent[];
+  replayTest: (runId: string) => void;
+  cloneTestConfig: (testId: string) => CreateTestInput | null;
 }
 
 const newId = (prefix: string) =>
@@ -620,6 +622,49 @@ export const useTestStore = create<TestStore>((set, get) => ({
       return timeline.filter((e) => e.testId === testId);
     }
     return timeline;
+  },
+
+  replayTest: (runId) => {
+    const { runs, tests, createTest, startTest } = get();
+    const run = runs.find((r) => r.id === runId);
+    if (!run) return;
+
+    const originalTest = tests.find((t) => t.id === run.testId);
+    if (!originalTest) return;
+
+    const clonedId = newId("test");
+    const now = new Date().toISOString();
+
+    set((state) => ({
+      tests: [
+        ...state.tests,
+        {
+          id: clonedId,
+          name: `${originalTest.name} (Replay)`,
+          description: originalTest.description,
+          scriptType: originalTest.scriptType,
+          targetUrl: originalTest.targetUrl,
+          virtualUsers: originalTest.virtualUsers,
+          status: "idle",
+          createdAt: now,
+          lastRunAt: null,
+        },
+      ],
+    }));
+
+    startTest(clonedId);
+  },
+
+  cloneTestConfig: (testId) => {
+    const test = get().tests.find((t) => t.id === testId);
+    if (!test) return null;
+    return {
+      name: `${test.name} (Copy)`,
+      description: test.description,
+      scriptType: test.scriptType,
+      targetUrl: test.targetUrl,
+      virtualUsers: test.virtualUsers,
+    };
   },
 }));
 

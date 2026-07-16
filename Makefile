@@ -193,3 +193,29 @@ db-shell: ## Open PostgreSQL shell
 
 redis-shell: ## Open Redis CLI
 	docker-compose exec redis redis-cli
+
+# Local Kubernetes
+k8s-setup: ## Setup local K8s cluster (minikube)
+	bash k8s/scripts/setup-local-cluster.sh
+
+k8s-deploy: ## Deploy platform to local K8s
+	bash k8s/scripts/deploy-platform.sh
+
+k8s-test: ## Run JMeter test on local K8s (usage: make k8s-test RUN_ID=test1 TARGET_URL=http://example.com VUS=10 DURATION=60)
+	bash k8s/scripts/run-jmeter-test.sh $(RUN_ID) $(TARGET_URL) $(VUS) $(DURATION) $(RAMP_UP)
+
+k8s-teardown: ## Tear down local K8s cluster
+	bash k8s/scripts/teardown-cluster.sh
+
+k8s-pods: ## Show all pods across namespaces
+	@echo "=== System Namespace ==="
+	@kubectl get pods -n marathonrunner-system 2>/dev/null || true
+	@echo ""
+	@echo "=== Execution Namespace ==="
+	@kubectl get pods -n marathonrunner-execution 2>/dev/null || true
+
+k8s-jobs: ## Show all JMeter jobs
+	kubectl get jobs -n marathonrunner-execution -l app.kubernetes.io/part-of=speedrunner
+
+k8s-logs-backend: ## Tail backend logs
+	kubectl logs -l app.kubernetes.io/component=backend -n marathonrunner-system -f --tail=100

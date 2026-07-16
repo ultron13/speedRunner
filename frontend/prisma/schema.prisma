@@ -1,0 +1,323 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Authentication & RBAC ───────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  passwordHash  String    @map("password_hash")
+  role          UserRole  @default(READ_ONLY)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  projects      ProjectMember[]
+  auditLogs     AuditLog[]
+  apiKeys       ApiKey[]
+  testRuns      Run[]          @relation("RunTriggeredBy")
+
+  @@map("users")
+}
+
+enum UserRole {
+  PLATFORM_ADMIN
+  PERFORMANCE_LEAD
+  PERFORMANCE_ENGINEER
+  DEVELOPER
+  QA
+  RELEASE_MANAGER
+  READ_ONLY
+  SERVICE_ACCOUNT
+}
+
+// ─── Project Management ─────────────────────────────────────────────────────
+
+model Project {
+  id          String          @id @default(cuid())
+  name        String
+  description String?         @db.Text
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  members     ProjectMember[]
+  tests       Test[]
+  slaThresholds SLAThreshold[]
+  templates   TestTemplate[]
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String    @id @default(cuid())
+  projectId String    @map("project_id")
+  userId    String    @map("user_id")
+  role      ProjectRole @default(MEMBER)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+enum ProjectRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+// ─── Test Management ────────────────────────────────────────────────────────
+
+model Test {
+  id            String       @id @default(cuid())
+  projectId     String       @map("project_id")
+  name          String
+  description   String?      @db.Text
+  scriptType    ScriptType   @map("script_type")
+  targetUrl     String       @map("target_url")
+  virtualUsers  Int          @map("virtual_users")
+  status        TestStatus   @default(IDLE)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  lastRunAt     DateTime?    @map("last_run_at")
+
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  runs          Run[]
+  schedules     TestSchedule[]
+  timeline      TimelineEvent[]
+
+  @@map("tests")
+}
+
+enum ScriptType {
+  HTTP
+  TruClient
+  JMeter
+}
+
+enum TestStatus {
+  IDLE
+  RUNNING
+  COMPLETED
+  STOPPED
+  FAILED
+}
+
+// ─── Test Runs & Results ────────────────────────────────────────────────────
+
+model Run {
+  id              String      @id @default(cuid())
+  testId          String      @map("test_id")
+  status          RunStatus   @default(RUNNING)
+  startedAt       DateTime    @default(now()) @map("started_at")
+  completedAt     DateTime?   @map("completed_at")
+  duration        Float?
+  throughput      Float?
+  avgResponseTime Float?      @map("avg_response_time")
+  p50             Float?
+  p90             Float?
+  p95             Float?
+  p99             Float?
+  errorRate       Float?      @map("error_rate")
+  triggeredBy     String?     @map("triggered_by")
+  triggerType     TriggerType @default(MANUAL) @map("trigger_type")
+
+  test            Test        @relation(fields: [testId], references: [id], onDelete: Cascade)
+  triggerer       User?       @relation("RunTriggeredBy", fields: [triggeredBy], references: [id])
+  metrics         RunMetric[]
+  slaResults      SLAResult[]
+  timeline        TimelineEvent[]
+
+  @@index([testId])
+  @@index([startedAt])
+  @@map("runs")
+}
+
+enum RunStatus {
+  RUNNING
+  COMPLETED
+  STOPPED
+  FAILED
+}
+
+enum TriggerType {
+  MANUAL
+  SCHEDULED
+  API
+  CI_CD
+}
+
+model RunMetric {
+  id              String   @id @default(cuid())
+  runId           String   @map("run_id")
+  timestamp       DateTime @default(now())
+  duration        Float
+  throughput      Float
+  avgResponseTime Float    @map("avg_response_time")
+  errorRate       Float    @map("error_rate")
+  activeVUsers    Int      @map("active_v_users")
+
+  run             Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, timestamp])
+  @@map("run_metrics")
+}
+
+// ─── SLA & Thresholds ───────────────────────────────────────────────────────
+
+model SLAThreshold {
+  id        String      @id @default(cuid())
+  projectId String      @map("project_id")
+  name      String
+  metric    SLAMetric
+  condition SLACondition
+  value     Float
+  enabled   Boolean     @default(true)
+
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  results   SLAResult[]
+
+  @@map("sla_thresholds")
+}
+
+enum SLAMetric {
+  AVG_RESPONSE_TIME
+  ERROR_RATE
+  THROUGHPUT
+  P50
+  P90
+  P95
+  P99
+}
+
+enum SLACondition {
+  LESS_THAN
+  GREATER_THAN
+}
+
+model SLAResult {
+  id          String      @id @default(cuid())
+  runId       String      @map("run_id")
+  thresholdId String      @map("threshold_id")
+  actualValue Float       @map("actual_value")
+  passed      Boolean
+
+  run         Run         @relation(fields: [runId], references: [id], onDelete: Cascade)
+  threshold   SLAThreshold @relation(fields: [thresholdId], references: [id], onDelete: Cascade)
+
+  @@map("sla_results")
+}
+
+// ─── Templates ──────────────────────────────────────────────────────────────
+
+model TestTemplate {
+  id            String     @id @default(cuid())
+  projectId     String     @map("project_id")
+  name          String
+  description   String?    @db.Text
+  scriptType    ScriptType @map("script_type")
+  targetUrl     String     @map("target_url")
+  virtualUsers  Int        @map("virtual_users")
+  usageCount    Int        @default(0) @map("usage_count")
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  project       Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("test_templates")
+}
+
+// ─── Scheduling ─────────────────────────────────────────────────────────────
+
+model TestSchedule {
+  id              String           @id @default(cuid())
+  testId          String           @map("test_id")
+  name            String
+  frequency       ScheduleFrequency
+  cronExpression  String?          @map("cron_expression")
+  enabled         Boolean          @default(true)
+  nextRunAt       DateTime?        @map("next_run_at")
+  lastRunAt       DateTime?        @map("last_run_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  test            Test             @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@map("test_schedules")
+}
+
+enum ScheduleFrequency {
+  ONCE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+// ─── Timeline & Events ──────────────────────────────────────────────────────
+
+model TimelineEvent {
+  id          String   @id @default(cuid())
+  testId      String   @map("test_id")
+  runId       String?  @map("run_id")
+  type        EventType
+  message     String   @db.Text
+  timestamp   DateTime @default(now())
+
+  test        Test     @relation(fields: [testId], references: [id], onDelete: Cascade)
+  run         Run?     @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([testId, timestamp])
+  @@map("timeline_events")
+}
+
+enum EventType {
+  TEST_CREATED
+  TEST_STARTED
+  TEST_STOPPED
+  TEST_COMPLETED
+  TEST_FAILED
+  RUN_STARTED
+  RUN_COMPLETED
+  SLA_BREACH
+  THRESHOLD_WARNING
+}
+
+// ─── API Keys ───────────────────────────────────────────────────────────────
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  name        String
+  keyHash     String    @unique @map("key_hash")
+  lastUsedAt  DateTime? @map("last_used_at")
+  expiresAt   DateTime? @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+// ─── Audit Logging ──────────────────────────────────────────────────────────
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String?  @map("user_id")
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String?  @map("resource_id")
+  details      Json?
+  ipAddress    String?  @map("ip_address")
+  timestamp    DateTime @default(now())
+
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([timestamp])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}

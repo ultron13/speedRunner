@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: marathonrunner-system
+  labels:
+    app.kubernetes.io/part-of: speedrunner
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: marathonrunner-execution
+  labels:
+    app.kubernetes.io/part-of: speedrunner
+    app.kubernetes.io/component: execution
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: marathonrunner-observability
+  labels:
+    app.kubernetes.io/part-of: speedrunner
+    app.kubernetes.io/component: observability

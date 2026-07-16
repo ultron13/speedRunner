@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Download, GitCompareArrows, History } from "lucide-react";
+import { Download, GitCompareArrows, History, Play, Copy } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,9 @@ export function RecentRunsTable() {
   const allRuns = useTestStore((state) => state.runs);
   const selectedRunIds = useTestStore((state) => state.selectedRunIds);
   const toggleRunSelection = useTestStore((state) => state.toggleRunSelection);
+  const replayTest = useTestStore((state) => state.replayTest);
+  const cloneTestConfig = useTestStore((state) => state.cloneTestConfig);
+  const [clonedConfig, setClonedConfig] = useState<ReturnType<typeof cloneTestConfig>>(null);
 
   const filteredRuns = useMemo(() => {
     let runs = [...allRuns].sort(
@@ -43,6 +46,15 @@ export function RecentRunsTable() {
   const handleExport = () => {
     const runsToExport = dateFilter ? filteredRuns : allRuns;
     exportRunsToCSV(runsToExport, `test-runs${dateFilter ? `-${dateFilter}` : ""}.csv`);
+  };
+
+  const handleReplay = (runId: string) => {
+    replayTest(runId);
+  };
+
+  const handleClone = (testId: string) => {
+    const config = cloneTestConfig(testId);
+    setClonedConfig(config);
   };
 
   return (
@@ -95,7 +107,8 @@ export function RecentRunsTable() {
                   <TableHead>Duration</TableHead>
                   <TableHead>Throughput</TableHead>
                   <TableHead>Avg Response Time</TableHead>
-                  <TableHead className="pr-5">Error Rate</TableHead>
+                  <TableHead>Error Rate</TableHead>
+                  <TableHead className="pr-5 text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -128,7 +141,29 @@ export function RecentRunsTable() {
                       <TableCell>{formatDuration(run.duration)}</TableCell>
                       <TableCell>{formatMetric(run.throughput, "req/s")}</TableCell>
                       <TableCell>{formatMetric(run.avgResponseTime, "ms")}</TableCell>
-                      <TableCell className="pr-5">{run.errorRate.toFixed(1)}%</TableCell>
+                      <TableCell>{run.errorRate.toFixed(1)}%</TableCell>
+                      <TableCell className="pr-5 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => handleReplay(run.id)}
+                            title="Replay this test"
+                            aria-label={`Replay ${run.testName}`}
+                          >
+                            <Play className="size-3.5 text-emerald-600" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => handleClone(run.testId)}
+                            title="Clone test configuration"
+                            aria-label={`Clone ${run.testName}`}
+                          >
+                            <Copy className="size-3.5 text-slate-400" />
+                          </Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   );
                 })}

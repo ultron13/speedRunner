@@ -17,7 +17,28 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      include: ["lib/simulation.ts", "data/mock-data.ts", "store/test-store.ts"],
+      include: [
+        // Core library files
+        "lib/simulation.ts",
+        "lib/validation.ts",
+        "lib/export.ts",
+        "lib/utils.ts",
+        "lib/report-pdf.ts",
+        "lib/api-client.ts",
+        "data/mock-data.ts",
+        // Core stores (tested)
+        "store/test-store.ts",
+        "store/dashboard-store.ts",
+        "store/auth-store.ts",
+        "store/api-store.ts",
+        "store/benchmark-store.ts",
+        "store/data-utilities-store.ts",
+        "store/integration-store.ts",
+      ],
+      exclude: [
+        "**/*.test.ts",
+        "**/*.spec.ts",
+      ],
       thresholds: {
         lines: 85,
         functions: 85,

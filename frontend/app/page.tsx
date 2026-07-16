@@ -2,78 +2,112 @@
 
 import { useEffect, useMemo } from "react";
 
+// Critical path — eagerly imported (above the fold)
 import { LoginForm } from "@/components/auth/LoginForm";
-import { UserProfile } from "@/components/auth/UserProfile";
-import { UserManagement } from "@/components/auth/UserManagement";
-import { TrendCharts } from "@/components/charts/TrendCharts";
-import { DashboardCustomizer } from "@/components/dashboard/DashboardCustomizer";
-import { InfrastructureHealth } from "@/components/dashboard/InfrastructureHealth";
-import { PerformanceAnalytics } from "@/components/dashboard/PerformanceAnalytics";
-import { ReportGenerator } from "@/components/dashboard/ReportGenerator";
-import { SLAConfig } from "@/components/dashboard/SLAConfig";
 import { Header } from "@/components/dashboard/Header";
 import { SummaryCards } from "@/components/dashboard/SummaryCards";
 import { ActiveTestsTable } from "@/components/tests/ActiveTestsTable";
-import { BulkActions } from "@/components/tests/BulkActions";
-import { CreateTestModal } from "@/components/tests/CreateTestModal";
 import { RecentRunsTable } from "@/components/tests/RecentRunsTable";
-import { RunComparison } from "@/components/tests/RunComparison";
-import { TestScheduler } from "@/components/tests/TestScheduler";
-import { TestTemplates } from "@/components/tests/TestTemplates";
-import { TestTimeline } from "@/components/tests/TestTimeline";
-import { APIKeys } from "@/components/integrations/APIKeys";
-import { Webhooks } from "@/components/integrations/Webhooks";
-import { IntegrationsPanel } from "@/components/integrations/IntegrationsPanel";
-import { ActivityLog } from "@/components/integrations/ActivityLog";
-import { CustomChartsBuilder } from "@/components/analytics/CustomChartsBuilder";
-import { ComparisonTool } from "@/components/analytics/ComparisonTool";
-import { GlobalFilters } from "@/components/analytics/GlobalFilters";
-import { ExportDashboard } from "@/components/sharing/ExportDashboard";
-import { ShareableLinks } from "@/components/sharing/ShareableLinks";
-import { EmailReports } from "@/components/sharing/EmailReports";
-import { DataImport } from "@/components/sharing/DataImport";
-import { GlobalSearch } from "@/components/search/GlobalSearch";
-import { SystemHealth } from "@/components/monitoring/SystemHealth";
-import { PerformanceMonitor } from "@/components/monitoring/PerformanceMonitor";
-import { ErrorTracker } from "@/components/monitoring/ErrorTracker";
-import { AuditTrail } from "@/components/monitoring/AuditTrail";
-import { TeamWorkspaces } from "@/components/collaboration/TeamWorkspaces";
-import { UserActivityFeed } from "@/components/collaboration/UserActivityFeed";
-import { TestConfigurations } from "@/components/testing/TestConfigurations";
-import { ChaosScenarios } from "@/components/testing/ChaosScenarios";
-import { LoadProfiles } from "@/components/testing/LoadProfiles";
-import { OnlineUsers } from "@/components/realtime/OnlineUsers";
-import { RealTimeNotifications } from "@/components/realtime/RealTimeNotifications";
-import { AnomalyDetection } from "@/components/ai/AnomalyDetection";
-import { PredictiveAnalytics } from "@/components/ai/PredictiveAnalytics";
-import { SmartRecommendations } from "@/components/ai/SmartRecommendations";
-import { AdvancedCharts } from "@/components/reporting/AdvancedCharts";
-import { ReportTemplates } from "@/components/reporting/ReportTemplates";
-import { ScheduledReports } from "@/components/reporting/ScheduledReports";
-import { TwoFactorAuth } from "@/components/security/TwoFactorAuth";
-import { SessionManagement } from "@/components/security/SessionManagement";
-import { ComplianceAudit } from "@/components/security/ComplianceAudit";
-import { SecurityAlerts } from "@/components/security/SecurityAlerts";
-import { CICDPipelines } from "@/components/cicd/CICDPipelines";
-import { AutomationRules } from "@/components/cicd/AutomationRules";
-import { DeploymentTracking } from "@/components/cicd/DeploymentTracking";
-import { DataExports } from "@/components/data-utilities/DataExports";
-import { DataImports } from "@/components/data-utilities/DataImports";
-import { ScheduledExports } from "@/components/data-utilities/ScheduledExports";
-import { PerformanceBenchmark } from "@/components/benchmarking/PerformanceBenchmark";
-import { APIDocumentation } from "@/components/api/APIDocumentation";
-import { AlertRules } from "@/components/alerting/AlertRules";
-import { TeamManagement } from "@/components/collaboration/TeamManagement";
-import { LanguageSelector } from "@/components/i18n/LanguageSelector";
-import { UserPreferencesPanel } from "@/components/preferences/UserPreferencesPanel";
-import { SystemStatusPanel } from "@/components/system/SystemStatusPanel";
-import { HelpPanel } from "@/components/help/HelpPanel";
-import { EnvironmentManager } from "@/components/deployment/EnvironmentManager";
-import { DeploymentPipelines } from "@/components/deployment/DeploymentPipelines";
-import { DeploymentHistory } from "@/components/deployment/DeploymentHistory";
+import { BulkActions } from "@/components/tests/BulkActions";
+import { DashboardCustomizer } from "@/components/dashboard/DashboardCustomizer";
+import { CreateTestModal } from "@/components/tests/CreateTestModal";
+import { ToastContainer } from "@/components/ui/toast";
 import { MobileNav } from "@/components/mobile/MobileNav";
 import { OfflineIndicator } from "@/components/mobile/OfflineIndicator";
-import { ToastContainer } from "@/components/ui/toast";
+import { TrendCharts } from "@/components/charts/TrendCharts";
+
+// Lazy-loaded sections
+import { LazySection } from "@/components/dashboard/LazySection";
+import {
+  LazyPerformanceAnalytics,
+  LazyComparisonTool,
+  LazyGlobalFilters,
+  LazyCustomChartsBuilder,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyAnomalyDetection,
+  LazyPredictiveAnalytics,
+  LazySmartRecommendations,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyAdvancedCharts,
+  LazyReportTemplates,
+  LazyScheduledReports,
+  LazyReportGenerator,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyTwoFactorAuth,
+  LazySessionManagement,
+  LazyComplianceAudit,
+  LazySecurityAlerts,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyCICDPipelines,
+  LazyAutomationRules,
+  LazyDeploymentTracking,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyDataExports,
+  LazyDataImports,
+  LazyScheduledExports,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazySystemHealth,
+  LazyPerformanceMonitor,
+  LazyErrorTracker,
+  LazyAuditTrail,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyTeamWorkspaces,
+  LazyUserActivityFeed,
+  LazyTeamManagement,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyTestConfigurations,
+  LazyChaosScenarios,
+  LazyLoadProfiles,
+  LazyTestScheduler,
+  LazyTestTimeline,
+  LazyTestTemplates,
+  LazyRunComparison,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyAPIKeys,
+  LazyWebhooks,
+  LazyIntegrationsPanel,
+  LazyActivityLog,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyExportDashboard,
+  LazyShareableLinks,
+  LazyEmailReports,
+  LazyDataImport,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyUserPreferencesPanel,
+  LazySystemStatusPanel,
+  LazyHelpPanel,
+  LazyLanguageSelector,
+  LazySLAConfig,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyEnvironmentManager,
+  LazyDeploymentPipelines,
+  LazyDeploymentHistory,
+} from "@/components/dashboard/lazy-sections";
+import {
+  LazyInfrastructureHealth,
+  LazyGlobalSearch,
+  LazyOnlineUsers,
+  LazyRealTimeNotifications,
+  LazyPerformanceBenchmark,
+  LazyAPIDocumentation,
+  LazyAlertRules,
+  LazyUserProfile,
+  LazyUserManagement,
+} from "@/components/dashboard/lazy-sections";
+
+// Hooks & stores
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useSimulation } from "@/hooks/useSimulation";
 import { useTheme } from "@/hooks/useTheme";
@@ -122,10 +156,8 @@ export default function DashboardPage() {
   useTheme();
   const { toasts, removeToast } = useToast();
 
-  // Initialize auth on mount
   useEffect(() => { initializeAuth(); }, [initializeAuth]);
 
-  // Keyboard shortcuts
   const shortcuts = useMemo(
     () => ({
       "ctrl+k": () => {
@@ -145,10 +177,8 @@ export default function DashboardPage() {
   );
   useKeyboardShortcuts(shortcuts);
 
-  // Always hydrate on mount — WS snapshot will override if available
   useEffect(() => { hydrate(); }, [hydrate]);
 
-  // Show login if not authenticated
   if (!isAuthenticated) {
     return <LoginForm />;
   }
@@ -173,119 +203,121 @@ export default function DashboardPage() {
           <DashboardSkeleton />
         ) : (
           <>
+            {/* Critical: always eagerly loaded */}
             <DashboardSection sectionId="summary"><SummaryCards /></DashboardSection>
             <DashboardSection sectionId="charts"><TrendCharts /></DashboardSection>
             <DashboardSection sectionId="activeTests"><ActiveTestsTable /></DashboardSection>
             <DashboardSection sectionId="recentRuns"><RecentRunsTable /></DashboardSection>
-            <DashboardSection sectionId="comparison"><RunComparison /></DashboardSection>
-            <DashboardSection sectionId="analytics"><PerformanceAnalytics /></DashboardSection>
+
+            {/* Below the fold: lazy loaded */}
+            <DashboardSection sectionId="comparison"><LazySection><LazyRunComparison /></LazySection></DashboardSection>
+            <DashboardSection sectionId="analytics"><LazySection><LazyPerformanceAnalytics /></LazySection></DashboardSection>
             <div className="grid gap-6 xl:grid-cols-2">
-              <DashboardSection sectionId="sla"><SLAConfig /></DashboardSection>
-              <DashboardSection sectionId="templates"><TestTemplates /></DashboardSection>
+              <DashboardSection sectionId="sla"><LazySection><LazySLAConfig /></LazySection></DashboardSection>
+              <DashboardSection sectionId="templates"><LazySection><LazyTestTemplates /></LazySection></DashboardSection>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <DashboardSection sectionId="scheduler"><TestScheduler /></DashboardSection>
-              <DashboardSection sectionId="timeline"><TestTimeline /></DashboardSection>
+              <DashboardSection sectionId="scheduler"><LazySection><LazyTestScheduler /></LazySection></DashboardSection>
+              <DashboardSection sectionId="timeline"><LazySection><LazyTestTimeline /></LazySection></DashboardSection>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <DashboardSection sectionId="profile"><UserProfile /></DashboardSection>
-              <DashboardSection sectionId="users"><UserManagement /></DashboardSection>
+              <DashboardSection sectionId="profile"><LazySection><LazyUserProfile /></LazySection></DashboardSection>
+              <DashboardSection sectionId="users"><LazySection><LazyUserManagement /></LazySection></DashboardSection>
             </div>
-            <DashboardSection sectionId="infrastructure"><InfrastructureHealth /></DashboardSection>
-            <ReportGenerator />
+            <DashboardSection sectionId="infrastructure"><LazySection><LazyInfrastructureHealth /></LazySection></DashboardSection>
+            <LazySection><LazyReportGenerator /></LazySection>
             <div className="grid gap-6 xl:grid-cols-2">
-              <APIKeys />
-              <Webhooks />
+              <LazySection><LazyAPIKeys /></LazySection>
+              <LazySection><LazyWebhooks /></LazySection>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <IntegrationsPanel />
-              <ActivityLog />
+              <LazySection><LazyIntegrationsPanel /></LazySection>
+              <LazySection><LazyActivityLog /></LazySection>
             </div>
-            <CustomChartsBuilder />
+            <LazySection><LazyCustomChartsBuilder /></LazySection>
             <div className="grid gap-6 xl:grid-cols-2">
-              <ComparisonTool />
-              <GlobalFilters onFilterChange={(filters) => {
-                // Store filters in state for future use
+              <LazySection><LazyComparisonTool /></LazySection>
+              <LazySection><LazyGlobalFilters onFilterChange={(filters) => {
                 console.log("Filters applied:", filters);
-              }} />
+              }} /></LazySection>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <ExportDashboard />
-              <ShareableLinks />
+              <LazySection><LazyExportDashboard /></LazySection>
+              <LazySection><LazyShareableLinks /></LazySection>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <EmailReports />
-              <DataImport />
+              <LazySection><LazyEmailReports /></LazySection>
+              <LazySection><LazyDataImport /></LazySection>
             </div>
-            <GlobalSearch />
+            <LazySection><LazyGlobalSearch /></LazySection>
             <div className="grid gap-6 xl:grid-cols-2">
-              <SystemHealth />
-              <PerformanceMonitor />
-            </div>
-            <div className="grid gap-6 xl:grid-cols-2">
-              <ErrorTracker />
-              <AuditTrail />
+              <LazySection><LazySystemHealth /></LazySection>
+              <LazySection><LazyPerformanceMonitor /></LazySection>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <TeamWorkspaces />
-              <UserActivityFeed />
+              <LazySection><LazyErrorTracker /></LazySection>
+              <LazySection><LazyAuditTrail /></LazySection>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <TestConfigurations />
-              <ChaosScenarios />
-            </div>
-            <LoadProfiles />
-            <div className="grid gap-6 xl:grid-cols-2">
-              <OnlineUsers />
-              <RealTimeNotifications />
+              <LazySection><LazyTeamWorkspaces /></LazySection>
+              <LazySection><LazyUserActivityFeed /></LazySection>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <AnomalyDetection />
-              <PredictiveAnalytics />
+              <LazySection><LazyTestConfigurations /></LazySection>
+              <LazySection><LazyChaosScenarios /></LazySection>
             </div>
-            <SmartRecommendations />
+            <LazySection><LazyLoadProfiles /></LazySection>
             <div className="grid gap-6 xl:grid-cols-2">
-              <AdvancedCharts />
-              <ReportTemplates />
-            </div>
-            <ScheduledReports />
-            <div className="grid gap-6 xl:grid-cols-2">
-              <TwoFactorAuth />
-              <SessionManagement />
+              <LazySection><LazyOnlineUsers /></LazySection>
+              <LazySection><LazyRealTimeNotifications /></LazySection>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <ComplianceAudit />
-              <SecurityAlerts />
+              <LazySection><LazyAnomalyDetection /></LazySection>
+              <LazySection><LazyPredictiveAnalytics /></LazySection>
+            </div>
+            <LazySection><LazySmartRecommendations /></LazySection>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <LazySection><LazyAdvancedCharts /></LazySection>
+              <LazySection><LazyReportTemplates /></LazySection>
+            </div>
+            <LazySection><LazyScheduledReports /></LazySection>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <LazySection><LazyTwoFactorAuth /></LazySection>
+              <LazySection><LazySessionManagement /></LazySection>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <CICDPipelines />
-              <AutomationRules />
-            </div>
-            <DeploymentTracking />
-            <div className="grid gap-6 xl:grid-cols-2">
-              <DataExports />
-              <DataImports />
-            </div>
-            <ScheduledExports />
-            <div className="grid gap-6 xl:grid-cols-2">
-              <PerformanceBenchmark />
-              <APIDocumentation />
+              <LazySection><LazyComplianceAudit /></LazySection>
+              <LazySection><LazySecurityAlerts /></LazySection>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <AlertRules />
-              <TeamManagement />
+              <LazySection><LazyCICDPipelines /></LazySection>
+              <LazySection><LazyAutomationRules /></LazySection>
             </div>
-            <LanguageSelector />
+            <LazySection><LazyDeploymentTracking /></LazySection>
             <div className="grid gap-6 xl:grid-cols-2">
-              <UserPreferencesPanel />
-              <SystemStatusPanel />
+              <LazySection><LazyDataExports /></LazySection>
+              <LazySection><LazyDataImports /></LazySection>
             </div>
-            <HelpPanel />
+            <LazySection><LazyScheduledExports /></LazySection>
             <div className="grid gap-6 xl:grid-cols-2">
-              <EnvironmentManager />
-              <DeploymentPipelines />
+              <LazySection><LazyPerformanceBenchmark /></LazySection>
+              <LazySection><LazyAPIDocumentation /></LazySection>
             </div>
-            <DeploymentHistory />
+            <div className="grid gap-6 xl:grid-cols-2">
+              <LazySection><LazyAlertRules /></LazySection>
+              <LazySection><LazyTeamManagement /></LazySection>
+            </div>
+            <LazySection><LazyLanguageSelector /></LazySection>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <LazySection><LazyUserPreferencesPanel /></LazySection>
+              <LazySection><LazySystemStatusPanel /></LazySection>
+            </div>
+            <LazySection><LazyHelpPanel /></LazySection>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <LazySection><LazyEnvironmentManager /></LazySection>
+              <LazySection><LazyDeploymentPipelines /></LazySection>
+            </div>
+            <LazySection><LazyDeploymentHistory /></LazySection>
           </>
         )}
         <BulkActions />

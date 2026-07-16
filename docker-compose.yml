@@ -143,3 +143,6 @@ volumes:
 networks:
   speedrunner-network:
     driver: bridge
+
+  # Go Backend API (use: docker-compose -f docker-compose.yml -f docker-compose.backend.yml up)
+  # Or: docker-compose --profile backend up

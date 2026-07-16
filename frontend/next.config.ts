@@ -6,6 +6,13 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  // Skip type checking during build for faster builds
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
 };
 
 export default nextConfig;

@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: marathonrunner-system
+  labels:
+    app.kubernetes.io/part-of: speedrunner
+    app.kubernetes.io/component: postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: marathonrunner-system
+  labels:
+    app.kubernetes.io/part-of: speedrunner
+    app.kubernetes.io/component: redis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: marathonrunner-system
+  labels:
+    app.kubernetes.io/part-of: speedrunner
+    app.kubernetes.io/component: minio
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

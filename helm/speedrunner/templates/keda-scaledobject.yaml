@@ -1,0 +1,29 @@
+{{- if .Values.keda.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "speedrunner.fullname" . }}-backend
+  labels:
+    {{- include "speedrunner.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "speedrunner.fullname" . }}-backend
+  minReplicaCount: {{ .Values.keda.minReplicas | default 1 }}
+  maxReplicaCount: {{ .Values.keda.maxReplicas | default 5 }}
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://{{ include "speedrunner.fullname" . }}-prometheus:9090
+        metricName: speedrunner_active_runs
+        threshold: "5"
+        query: speedrunner_active_runs
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "speedrunner.fullname" . }}-trigger-auth
+  labels:
+    {{- include "speedrunner.labels" . | nindent 4 }}
+spec:
+  secretTargetRef: []
+{{- end }}
