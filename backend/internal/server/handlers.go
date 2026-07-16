@@ -2,51 +2,18 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/belo/speedrunner/backend/internal/auth"
 )
-
-// In-memory user store (will be replaced with DB queries)
-type userStore struct {
-	users map[string]struct {
-		ID           string
-		Email        string
-		Name         string
-		PasswordHash string
-		Role         string
-	}
-}
-
-var store = &userStore{users: make(map[string]struct {
-	ID           string
-	Email        string
-	Name         string
-	PasswordHash string
-	Role         string
-})}
-
-func init() {
-	// Seed admin user
-	hash, _ := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
-	store.users["admin"] = struct {
-		ID           string
-		Email        string
-		Name         string
-		PasswordHash string
-		Role         string
-	}{
-		ID:           "admin",
-		Email:        "admin@speedrunner.local",
-		Name:         "Admin",
-		PasswordHash: string(hash),
-		Role:         "PLATFORM_ADMIN",
-	}
-}
 
 type loginRequest struct {
 	Email    string `json:"email"`
@@ -61,10 +28,11 @@ type registerRequest struct {
 }
 
 type userResponse struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	Role      string `json:"role"`
+	CreatedAt string `json:"createdAt,omitempty"`
 }
 
 type tokenResponse struct {
@@ -72,46 +40,96 @@ type tokenResponse struct {
 	User  userResponse `json:"user"`
 }
 
-type errorResponse struct {
-	Error string `json:"error"`
+type createProjectRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
+type createTestRequest struct {
+	ProjectID    string `json:"projectId"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	ScriptType   string `json:"scriptType"`
+	TargetURL    string `json:"targetUrl"`
+	VirtualUsers int    `json:"virtualUsers"`
+}
+
+type updateTestRequest struct {
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	ScriptType   string `json:"scriptType"`
+	TargetURL    string `json:"targetUrl"`
+	VirtualUsers int    `json:"virtualUsers"`
+}
+
+type createRunRequest struct {
+	TestID      string `json:"testId"`
+	TriggerType string `json:"triggerType"`
+}
+
+func (s *Server) requireDB(w http.ResponseWriter) bool {
+	if s.DB == nil || s.Users == nil {
+		writeError(w, http.StatusServiceUnavailable, "database not configured")
+		return false
+	}
+	return true
+}
+
+func (s *Server) writeAudit(r *http.Request, action, resourceType, resourceID string) {
+	if s.Audit == nil {
+		return
+	}
+	uid := userIDFromContext(r.Context())
+	var userID *string
+	if uid != "" {
+		userID = &uid
+	}
+	var resID *string
+	if resourceID != "" {
+		resID = &resourceID
+	}
+	ip := clientIP(r)
+	ipPtr := &ip
+	details := `{}`
+	_ = s.Audit.Create(r.Context(), userID, action, resourceType, resID, &details, ipPtr)
+}
+
+// ── Auth ────────────────────────────────────────────────────────────────────
+
 func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
+	if !s.requireDB(w) {
+		return
+	}
+
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	if req.Email == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "email and password are required")
+		return
+	}
 
-	// Find user by email
-	var foundUser struct {
-		ID           string
-		Email        string
-		Name         string
-		PasswordHash string
-		Role         string
+	user, err := s.Users.GetByEmail(r.Context(), req.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "login failed")
+		return
 	}
-	found := false
-	for _, u := range store.users {
-		if u.Email == req.Email {
-			foundUser = u
-			found = true
-			break
-		}
-	}
-	if !found {
+	if user == nil {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(foundUser.PasswordHash), []byte(req.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":  foundUser.ID,
-		"role": foundUser.Role,
+		"sub":  user.ID,
+		"role": user.Role,
 		"exp":  time.Now().Add(time.Duration(s.Config.JWT.ExpireHour) * time.Hour).Unix(),
 	})
 
@@ -121,22 +139,63 @@ func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.writeAudit(r, "login", "user", user.ID)
+
 	writeJSON(w, http.StatusOK, tokenResponse{
 		Token: tokenStr,
 		User: userResponse{
-			ID:    foundUser.ID,
-			Email: foundUser.Email,
-			Name:  foundUser.Name,
-			Role:  foundUser.Role,
+			ID:        user.ID,
+			Email:     user.Email,
+			Name:      user.Name,
+			Role:      user.Role,
+			CreatedAt: user.CreatedAt.UTC().Format(time.RFC3339),
 		},
 	})
 }
 
 func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
+	if !s.requireDB(w) {
+		return
+	}
+
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Email == "" || req.Name == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "email, name, and password are required")
+		return
+	}
+	if len(req.Password) < 6 {
+		writeError(w, http.StatusBadRequest, "password must be at least 6 characters")
+		return
+	}
+
+	existing, err := s.Users.GetByEmail(r.Context(), req.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "registration failed")
+		return
+	}
+	if existing != nil {
+		writeError(w, http.StatusConflict, "email already registered")
+		return
+	}
+
+	role := req.Role
+	if role == "" {
+		role = string(auth.RoleReadOnly)
+	}
+	if !auth.IsValidRole(role) {
+		writeError(w, http.StatusBadRequest, "invalid role")
+		return
+	}
+	// Only allow self-registration as READ_ONLY unless seeded admin path
+	if role != string(auth.RoleReadOnly) {
+		role = string(auth.RoleReadOnly)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -145,138 +204,565 @@ func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := req.Email
-	role := req.Role
-	if role == "" {
-		role = "READ_ONLY"
+	user, err := s.Users.Create(r.Context(), uuid.New().String(), req.Email, req.Name, string(hash), role)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create user")
+		return
 	}
 
-	store.users[id] = struct {
-		ID           string
-		Email        string
-		Name         string
-		PasswordHash string
-		Role         string
-	}{
-		ID:           id,
-		Email:        req.Email,
-		Name:         req.Name,
-		PasswordHash: string(hash),
-		Role:         role,
-	}
+	s.writeAudit(r, "register", "user", user.ID)
 
 	writeJSON(w, http.StatusCreated, userResponse{
-		ID:    id,
-		Email: req.Email,
-		Name:  req.Name,
-		Role:  role,
+		ID:        user.ID,
+		Email:     user.Email,
+		Name:      user.Name,
+		Role:      user.Role,
+		CreatedAt: user.CreatedAt.UTC().Format(time.RFC3339),
 	})
 }
 
 func (s *Server) meHandler(w http.ResponseWriter, r *http.Request) {
-	userID, ok := r.Context().Value(UserIDKey).(string)
-	if !ok || userID == "" {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
+	if !s.requireDB(w) {
 		return
 	}
 
-	user, found := store.users[userID]
-	if !found {
+	userID := userIDFromContext(r.Context())
+	user, err := s.Users.GetByID(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load user")
+		return
+	}
+	if user == nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, userResponse{
-		ID:    user.ID,
-		Email: user.Email,
-		Name:  user.Name,
-		Role:  user.Role,
+		ID:        user.ID,
+		Email:     user.Email,
+		Name:      user.Name,
+		Role:      user.Role,
+		CreatedAt: user.CreatedAt.UTC().Format(time.RFC3339),
 	})
 }
 
-// Placeholder handlers for API routes
+// ── Projects ────────────────────────────────────────────────────────────────
+
 func (s *Server) listProjectsHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, []interface{}{})
+	if !s.requireDB(w) {
+		return
+	}
+	projects, err := s.Projects.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list projects")
+		return
+	}
+	writeJSON(w, http.StatusOK, projects)
 }
 
 func (s *Server) createProjectHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusCreated, map[string]string{"message": "project created"})
+	if !s.requireDB(w) {
+		return
+	}
+	var req createProjectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	project, err := s.Projects.Create(r.Context(), uuid.New().String(), req.Name, req.Description)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create project")
+		return
+	}
+	s.writeAudit(r, "create", "project", project.ID)
+	writeJSON(w, http.StatusCreated, project)
 }
 
 func (s *Server) getProjectHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"id": chi.URLParam(r, "id")})
+	if !s.requireDB(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	project, err := s.Projects.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get project")
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, project)
 }
 
 func (s *Server) updateProjectHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"message": "project updated"})
+	if !s.requireDB(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	var req createProjectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	project, err := s.Projects.Update(r.Context(), id, req.Name, req.Description)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update project")
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	s.writeAudit(r, "update", "project", project.ID)
+	writeJSON(w, http.StatusOK, project)
 }
 
 func (s *Server) deleteProjectHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"message": "project deleted"})
+	if !s.requireDB(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	existing, err := s.Projects.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete project")
+		return
+	}
+	if existing == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	if err := s.Projects.Delete(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete project")
+		return
+	}
+	s.writeAudit(r, "delete", "project", id)
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
+// ── Tests ───────────────────────────────────────────────────────────────────
+
 func (s *Server) listTestsHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, []interface{}{})
+	if !s.requireDB(w) {
+		return
+	}
+	projectID := r.URL.Query().Get("projectId")
+	if projectID == "" {
+		projectID = r.URL.Query().Get("project_id")
+	}
+	tests, err := s.Tests.List(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list tests")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"tests":  tests,
+		"total":  len(tests),
+		"limit":  len(tests),
+		"offset": 0,
+	})
 }
 
 func (s *Server) createTestHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusCreated, map[string]string{"message": "test created"})
+	if !s.requireDB(w) {
+		return
+	}
+	var req createTestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	req.Name = strings.TrimSpace(req.Name)
+	req.TargetURL = strings.TrimSpace(req.TargetURL)
+	if req.Name == "" || req.TargetURL == "" {
+		writeError(w, http.StatusBadRequest, "name and targetUrl are required")
+		return
+	}
+	if req.VirtualUsers <= 0 {
+		req.VirtualUsers = s.Config.Engine.DefaultVUs
+	}
+	if req.VirtualUsers > s.Config.Engine.MaxVUs {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("virtualUsers cannot exceed %d", s.Config.Engine.MaxVUs))
+		return
+	}
+	if req.ScriptType == "" {
+		req.ScriptType = "HTTP"
+	}
+
+	projectID := req.ProjectID
+	if projectID == "" {
+		// Auto-create or reuse default project
+		projects, err := s.Projects.List(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to resolve project")
+			return
+		}
+		if len(projects) == 0 {
+			p, err := s.Projects.Create(r.Context(), uuid.New().String(), "Default Project", "Auto-created project")
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to create default project")
+				return
+			}
+			projectID = p.ID
+		} else {
+			projectID = projects[0].ID
+		}
+	} else {
+		p, err := s.Projects.Get(r.Context(), projectID)
+		if err != nil || p == nil {
+			writeError(w, http.StatusBadRequest, "invalid projectId")
+			return
+		}
+	}
+
+	test, err := s.Tests.Create(r.Context(), uuid.New().String(), projectID, req.Name, req.Description,
+		req.ScriptType, req.TargetURL, req.VirtualUsers)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create test")
+		return
+	}
+	s.writeAudit(r, "create", "test", test.ID)
+	writeJSON(w, http.StatusCreated, test)
 }
 
 func (s *Server) getTestHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"id": chi.URLParam(r, "id")})
+	if !s.requireDB(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	test, err := s.Tests.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get test")
+		return
+	}
+	if test == nil {
+		writeError(w, http.StatusNotFound, "test not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, test)
 }
 
 func (s *Server) updateTestHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"message": "test updated"})
+	if !s.requireDB(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	existing, err := s.Tests.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update test")
+		return
+	}
+	if existing == nil {
+		writeError(w, http.StatusNotFound, "test not found")
+		return
+	}
+
+	var req updateTestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		req.Name = existing.Name
+	}
+	if req.Description == "" {
+		req.Description = existing.Description
+	}
+	if req.ScriptType == "" {
+		req.ScriptType = existing.ScriptType
+	}
+	if req.TargetURL == "" {
+		req.TargetURL = existing.TargetURL
+	}
+	if req.VirtualUsers <= 0 {
+		req.VirtualUsers = existing.VirtualUsers
+	}
+
+	test, err := s.Tests.Update(r.Context(), id, req.Name, req.Description, req.ScriptType, req.TargetURL, req.VirtualUsers)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update test")
+		return
+	}
+	s.writeAudit(r, "update", "test", id)
+	writeJSON(w, http.StatusOK, test)
 }
 
 func (s *Server) deleteTestHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"message": "test deleted"})
+	if !s.requireDB(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	existing, err := s.Tests.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete test")
+		return
+	}
+	if existing == nil {
+		writeError(w, http.StatusNotFound, "test not found")
+		return
+	}
+	if strings.EqualFold(existing.Status, "RUNNING") {
+		writeError(w, http.StatusConflict, "cannot delete a running test; stop it first")
+		return
+	}
+	if err := s.Tests.Delete(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete test")
+		return
+	}
+	s.writeAudit(r, "delete", "test", id)
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 func (s *Server) startTestHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"message": "test started"})
+	if !s.requireDB(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	test, err := s.Tests.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start test")
+		return
+	}
+	if test == nil {
+		writeError(w, http.StatusNotFound, "test not found")
+		return
+	}
+	if strings.EqualFold(test.Status, "RUNNING") {
+		writeError(w, http.StatusConflict, "test is already running")
+		return
+	}
+
+	userID := userIDFromContext(r.Context())
+	var triggeredBy *string
+	if userID != "" {
+		triggeredBy = &userID
+	}
+
+	run, err := s.Runs.Create(r.Context(), uuid.New().String(), id, "MANUAL", triggeredBy)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create run")
+		return
+	}
+	if err := s.Tests.UpdateStatus(r.Context(), id, "RUNNING"); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update test status")
+		return
+	}
+	_ = s.Tests.SetLastRun(r.Context(), id)
+
+	// Phase 1: state transition only. Phase 2 will spawn a real engine.
+	if s.Redis != nil {
+		_ = s.Redis.Set(r.Context(), redisStatusKey(run.ID), "RUNNING", 24*time.Hour)
+	}
+
+	s.writeAudit(r, "start", "test", id)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"run":    run,
+		"testId": id,
+		"status": "RUNNING",
+		"mode":   "simulate", // until Phase 2 execution
+	})
 }
 
 func (s *Server) stopTestHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"message": "test stopped"})
+	if !s.requireDB(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	test, err := s.Tests.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to stop test")
+		return
+	}
+	if test == nil {
+		writeError(w, http.StatusNotFound, "test not found")
+		return
+	}
+	if !strings.EqualFold(test.Status, "RUNNING") {
+		writeError(w, http.StatusConflict, "test is not running")
+		return
+	}
+
+	active, err := s.Runs.GetActiveByTestID(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to find active run")
+		return
+	}
+	if active != nil {
+		if err := s.Runs.Stop(r.Context(), active.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to stop run")
+			return
+		}
+		if s.Redis != nil {
+			_ = s.Redis.Set(r.Context(), redisStatusKey(active.ID), "STOPPED", 24*time.Hour)
+		}
+	}
+
+	if err := s.Tests.UpdateStatus(r.Context(), id, "STOPPED"); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update test status")
+		return
+	}
+
+	var runID interface{}
+	if active != nil {
+		runID = active.ID
+	}
+
+	s.writeAudit(r, "stop", "test", id)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"testId":  id,
+		"status":  "STOPPED",
+		"runId":   runID,
+	})
 }
 
+func redisStatusKey(runID string) string {
+	return fmt.Sprintf("speedrunner:run:%s:status", runID)
+}
+
+// ── Runs ────────────────────────────────────────────────────────────────────
+
 func (s *Server) listRunsHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, []interface{}{})
+	if !s.requireDB(w) {
+		return
+	}
+	testID := r.URL.Query().Get("testId")
+	if testID == "" {
+		testID = r.URL.Query().Get("test_id")
+	}
+	runs, err := s.Runs.List(r.Context(), testID, 100)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list runs")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"runs":  runs,
+		"total": len(runs),
+	})
 }
 
 func (s *Server) createRunHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusCreated, map[string]string{"message": "run created"})
+	if !s.requireDB(w) {
+		return
+	}
+	var req createRunRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.TestID == "" {
+		writeError(w, http.StatusBadRequest, "testId is required")
+		return
+	}
+	test, err := s.Tests.Get(r.Context(), req.TestID)
+	if err != nil || test == nil {
+		writeError(w, http.StatusBadRequest, "invalid testId")
+		return
+	}
+	triggerType := req.TriggerType
+	if triggerType == "" {
+		triggerType = "MANUAL"
+	}
+	userID := userIDFromContext(r.Context())
+	var triggeredBy *string
+	if userID != "" {
+		triggeredBy = &userID
+	}
+	run, err := s.Runs.Create(r.Context(), uuid.New().String(), req.TestID, triggerType, triggeredBy)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create run")
+		return
+	}
+	s.writeAudit(r, "create", "run", run.ID)
+	writeJSON(w, http.StatusCreated, run)
 }
 
 func (s *Server) getRunHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"id": chi.URLParam(r, "id")})
+	if !s.requireDB(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	run, err := s.Runs.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+	if run == nil {
+		writeError(w, http.StatusNotFound, "run not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, run)
 }
 
 func (s *Server) stopRunHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"message": "run stopped"})
+	if !s.requireDB(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	run, err := s.Runs.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to stop run")
+		return
+	}
+	if run == nil {
+		writeError(w, http.StatusNotFound, "run not found")
+		return
+	}
+	if !strings.EqualFold(run.Status, "RUNNING") {
+		writeError(w, http.StatusConflict, "run is not running")
+		return
+	}
+	if err := s.Runs.Stop(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to stop run")
+		return
+	}
+	_ = s.Tests.UpdateStatus(r.Context(), run.TestID, "STOPPED")
+	s.writeAudit(r, "stop", "run", id)
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 func (s *Server) getRunMetricsHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, []interface{}{})
+	if !s.requireDB(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	metrics, err := s.Runs.GetMetrics(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get metrics")
+		return
+	}
+	writeJSON(w, http.StatusOK, metrics)
 }
+
+// ── Placeholders (Phase 3) ──────────────────────────────────────────────────
 
 func (s *Server) listSchedulesHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, []interface{}{})
 }
 
 func (s *Server) createScheduleHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusCreated, map[string]string{"message": "schedule created"})
+	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "schedules not implemented yet"})
 }
 
 func (s *Server) updateScheduleHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"message": "schedule updated"})
+	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "schedules not implemented yet"})
 }
 
 func (s *Server) deleteScheduleHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"message": "schedule deleted"})
+	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "schedules not implemented yet"})
 }
 
 func (s *Server) listSLAThresholdsHandler(w http.ResponseWriter, r *http.Request) {
@@ -284,7 +770,7 @@ func (s *Server) listSLAThresholdsHandler(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) createSLAThresholdHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusCreated, map[string]string{"message": "SLA threshold created"})
+	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "SLA not implemented yet"})
 }
 
 func (s *Server) listSLAResultsHandler(w http.ResponseWriter, r *http.Request) {
@@ -296,11 +782,17 @@ func (s *Server) listTemplatesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createTemplateHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusCreated, map[string]string{"message": "template created"})
+	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "templates not implemented yet"})
 }
 
 func (s *Server) listAuditLogsHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, []interface{}{})
+	if !s.requireDB(w) {
+		return
+	}
+	logs, err := s.Audit.List(r.Context(), 100)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list audit logs")
+		return
+	}
+	writeJSON(w, http.StatusOK, logs)
 }
-
-// Ensure config import is used

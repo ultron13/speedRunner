@@ -2,8 +2,10 @@ package queries
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -11,8 +13,8 @@ type Project struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 type ProjectQueries struct {
@@ -24,13 +26,15 @@ func NewProjectQueries(pool *pgxpool.Pool) *ProjectQueries {
 }
 
 func (q *ProjectQueries) List(ctx context.Context) ([]Project, error) {
-	rows, err := q.pool.Query(ctx, "SELECT id, name, COALESCE(description,''), created_at, updated_at FROM projects ORDER BY created_at DESC")
+	rows, err := q.pool.Query(ctx,
+		`SELECT id, name, COALESCE(description,''), created_at, updated_at
+		 FROM projects ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var projects []Project
+	projects := make([]Project, 0)
 	for rows.Next() {
 		var p Project
 		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt); err != nil {
@@ -38,14 +42,19 @@ func (q *ProjectQueries) List(ctx context.Context) ([]Project, error) {
 		}
 		projects = append(projects, p)
 	}
-	return projects, nil
+	return projects, rows.Err()
 }
 
 func (q *ProjectQueries) Get(ctx context.Context, id string) (*Project, error) {
 	var p Project
-	err := q.pool.QueryRow(ctx, "SELECT id, name, COALESCE(description,''), created_at, updated_at FROM projects WHERE id=$1", id).
-		Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt)
+	err := q.pool.QueryRow(ctx,
+		`SELECT id, name, COALESCE(description,''), created_at, updated_at
+		 FROM projects WHERE id=$1`, id,
+	).Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &p, nil
@@ -54,7 +63,8 @@ func (q *ProjectQueries) Get(ctx context.Context, id string) (*Project, error) {
 func (q *ProjectQueries) Create(ctx context.Context, id, name, description string) (*Project, error) {
 	var p Project
 	err := q.pool.QueryRow(ctx,
-		"INSERT INTO projects (id, name, description) VALUES ($1, $2, $3) RETURNING id, name, COALESCE(description,''), created_at, updated_at",
+		`INSERT INTO projects (id, name, description) VALUES ($1, $2, $3)
+		 RETURNING id, name, COALESCE(description,''), created_at, updated_at`,
 		id, name, description,
 	).Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
@@ -66,16 +76,27 @@ func (q *ProjectQueries) Create(ctx context.Context, id, name, description strin
 func (q *ProjectQueries) Update(ctx context.Context, id, name, description string) (*Project, error) {
 	var p Project
 	err := q.pool.QueryRow(ctx,
-		"UPDATE projects SET name=$2, description=$3, updated_at=NOW() WHERE id=$1 RETURNING id, name, COALESCE(description,''), created_at, updated_at",
+		`UPDATE projects SET name=$2, description=$3, updated_at=NOW()
+		 WHERE id=$1
+		 RETURNING id, name, COALESCE(description,''), created_at, updated_at`,
 		id, name, description,
 	).Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &p, nil
 }
 
 func (q *ProjectQueries) Delete(ctx context.Context, id string) error {
-	_, err := q.pool.Exec(ctx, "DELETE FROM projects WHERE id=$1", id)
+	_, err := q.pool.Exec(ctx, `DELETE FROM projects WHERE id=$1`, id)
 	return err
+}
+
+func (q *ProjectQueries) Count(ctx context.Context) (int, error) {
+	var n int
+	err := q.pool.QueryRow(ctx, `SELECT COUNT(*) FROM projects`).Scan(&n)
+	return n, err
 }

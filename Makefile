@@ -75,9 +75,20 @@ logs: ## View container logs
 clean: ## Remove containers and volumes
 	docker-compose down -v --rmi all
 
+# Backend control plane
+backend-build: ## Build Go control plane
+	cd backend && go build -o bin/server ./cmd/server
+
+backend-run: ## Run Go control plane (requires Postgres; Redis optional)
+	cd backend && go run ./cmd/server
+
+backend-test: ## Run Go unit tests
+	cd backend && go test ./...
+
 # Testing
 test: ## Run all tests
 	cd frontend && npm run test:run
+	cd backend && go test ./...
 
 test:e2e: ## Run E2E tests
 	cd frontend && npm run test:e2e

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { createMockData } from "@/data/mock-data";
+import { apiClient, isGoBackendEnabled } from "@/lib/api-client";
 import {
   clampTrendData,
   createInitialMetrics,
@@ -22,6 +23,54 @@ import type {
   TrendPoint,
 } from "@/types";
 import type { ServerState, TickUpdate } from "@/lib/ws-types";
+
+function normalizeStatus(status: string): Test["status"] {
+  return status.toLowerCase() as Test["status"];
+}
+
+function mapApiTest(t: Record<string, unknown>): Test {
+  return {
+    id: t.id as string,
+    name: t.name as string,
+    description: (t.description as string) || "",
+    scriptType: t.scriptType as Test["scriptType"],
+    targetUrl: t.targetUrl as string,
+    virtualUsers: t.virtualUsers as number,
+    status: normalizeStatus((t.status as string) || "idle"),
+    createdAt:
+      typeof t.createdAt === "string"
+        ? t.createdAt
+        : new Date(t.createdAt as string).toISOString(),
+    lastRunAt: t.lastRunAt
+      ? typeof t.lastRunAt === "string"
+        ? t.lastRunAt
+        : new Date(t.lastRunAt as string).toISOString()
+      : null,
+  };
+}
+
+function mapApiRun(r: Record<string, unknown>): Run {
+  const status = normalizeStatus((r.status as string) || "completed") as Run["status"];
+  return {
+    id: r.id as string,
+    testId: r.testId as string,
+    testName: (r.testName as string) || "Unknown",
+    status: status === "running" ? "stopped" : status,
+    startedAt:
+      typeof r.startedAt === "string"
+        ? r.startedAt
+        : new Date(r.startedAt as string).toISOString(),
+    completedAt: r.completedAt
+      ? typeof r.completedAt === "string"
+        ? r.completedAt
+        : new Date(r.completedAt as string).toISOString()
+      : new Date().toISOString(),
+    duration: (r.duration as number) || 0,
+    throughput: (r.throughput as number) || 0,
+    avgResponseTime: (r.avgResponseTime as number) || 0,
+    errorRate: (r.errorRate as number) || 0,
+  };
+}
 
 export interface TestStore {
   hydrated: boolean;
@@ -133,6 +182,62 @@ export const useTestStore = create<TestStore>((set, get) => ({
   hydrate: () => {
     if (get().hydrated) return;
 
+    // Go control plane: load durable state from API
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          const [testsRes, runsRes] = await Promise.all([
+            apiClient.getTests({ limit: 100 }),
+            apiClient.getRuns({ limit: 100 }),
+          ]);
+          const tests = (testsRes.tests || []).map(mapApiTest);
+          const runs = (runsRes.runs || []).map(mapApiRun);
+          const liveMetrics = new Map<string, LiveMetrics>();
+          tests
+            .filter((t) => t.status === "running")
+            .forEach((t) => {
+              liveMetrics.set(t.id, createInitialMetrics(t.id, t.virtualUsers));
+            });
+          set({
+            tests,
+            runs,
+            liveMetrics,
+            trendData: [],
+            infrastructure: [
+              {
+                component: "Controller",
+                status: "healthy",
+                lastChecked: new Date().toISOString(),
+              },
+              {
+                component: "Load Generator",
+                status: "healthy",
+                lastChecked: new Date().toISOString(),
+              },
+              {
+                component: "Database",
+                status: "healthy",
+                lastChecked: new Date().toISOString(),
+              },
+            ],
+            hydrated: true,
+            connected: true,
+          });
+        } catch (err) {
+          console.error("Failed to hydrate from API, falling back to mock:", err);
+          const seed = createMockData();
+          const liveMetrics = new Map<string, LiveMetrics>();
+          seed.tests
+            .filter((test) => test.status === "running")
+            .forEach((test) => {
+              liveMetrics.set(test.id, createInitialMetrics(test.id, test.virtualUsers));
+            });
+          set({ ...seed, liveMetrics, hydrated: true });
+        }
+      })();
+      return;
+    }
+
     const seed = createMockData();
     const liveMetrics = new Map<string, LiveMetrics>();
     seed.tests
@@ -168,6 +273,24 @@ export const useTestStore = create<TestStore>((set, get) => ({
   setSendMessage: (fn) => set({ sendMessage: fn }),
 
   dispatchCreateTest: (data) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          const created = await apiClient.createTest({
+            name: data.name,
+            description: data.description,
+            scriptType: data.scriptType,
+            targetUrl: data.targetUrl,
+            virtualUsers: data.virtualUsers,
+          });
+          const test = mapApiTest(created);
+          set((state) => ({ tests: [...state.tests, test] }));
+        } catch (err) {
+          console.error("createTest API failed:", err);
+        }
+      })();
+      return;
+    }
     const { connected, sendMessage, createTest } = get();
     if (connected) {
       sendMessage({ type: "createTest", payload: data });
@@ -177,6 +300,33 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   dispatchStartTest: (testId) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          await apiClient.startTest(testId);
+          set((state) => ({
+            tests: state.tests.map((t) =>
+              t.id === testId
+                ? { ...t, status: "running" as const, lastRunAt: new Date().toISOString() }
+                : t,
+            ),
+            liveMetrics: new Map(state.liveMetrics).set(
+              testId,
+              createInitialMetrics(
+                testId,
+                state.tests.find((t) => t.id === testId)?.virtualUsers ?? 10,
+              ),
+            ),
+          }));
+          // Refresh runs list
+          const runsRes = await apiClient.getRuns({ limit: 100 });
+          set({ runs: (runsRes.runs || []).map(mapApiRun) });
+        } catch (err) {
+          console.error("startTest API failed:", err);
+        }
+      })();
+      return;
+    }
     const { connected, sendMessage, startTest } = get();
     if (connected) {
       sendMessage({ type: "startTest", payload: { testId } });
@@ -186,6 +336,28 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   dispatchStopTest: (testId) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          await apiClient.stopTest(testId);
+          set((state) => {
+            const nextMetrics = new Map(state.liveMetrics);
+            nextMetrics.delete(testId);
+            return {
+              tests: state.tests.map((t) =>
+                t.id === testId ? { ...t, status: "stopped" as const } : t,
+              ),
+              liveMetrics: nextMetrics,
+            };
+          });
+          const runsRes = await apiClient.getRuns({ limit: 100 });
+          set({ runs: (runsRes.runs || []).map(mapApiRun) });
+        } catch (err) {
+          console.error("stopTest API failed:", err);
+        }
+      })();
+      return;
+    }
     const { connected, sendMessage, stopTest } = get();
     if (connected) {
       sendMessage({ type: "stopTest", payload: { testId } });
@@ -195,6 +367,24 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   dispatchDeleteTest: (testId) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          await apiClient.deleteTest(testId);
+          set((state) => {
+            const nextMetrics = new Map(state.liveMetrics);
+            nextMetrics.delete(testId);
+            return {
+              tests: state.tests.filter((t) => t.id !== testId),
+              liveMetrics: nextMetrics,
+            };
+          });
+        } catch (err) {
+          console.error("deleteTest API failed:", err);
+        }
+      })();
+      return;
+    }
     const { connected, sendMessage, deleteTest } = get();
     if (connected) {
       sendMessage({ type: "deleteTest", payload: { testId } });

@@ -1,12 +1,12 @@
 /**
- * API client for making requests to the SpeedRunner backend.
- * Supports two modes:
- * 1. Go backend (when SPEEDRUNNER_API_URL is set) - production mode
- * 2. Next.js API routes (fallback) - development/standalone mode
+ * API client for SpeedRunner.
+ *
+ * Modes:
+ * 1. Go control plane when NEXT_PUBLIC_API_URL is set (e.g. http://localhost:8080)
+ * 2. Next.js /api routes when unset (legacy / standalone)
  */
 
-const GO_BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "";
-const API_BASE = GO_BACKEND_URL ? "" : "/api";
+const GO_BACKEND_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
 interface RequestOptions {
   method?: string;
@@ -14,16 +14,23 @@ interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+function apiRoot(): string {
+  return GO_BACKEND_URL ? `${GO_BACKEND_URL}/api` : "/api";
+}
+
+export function isGoBackendEnabled(): boolean {
+  return Boolean(GO_BACKEND_URL);
+}
+
 class APIClient {
   private token: string | null = null;
-  private backendURL: string;
-
-  constructor() {
-    this.backendURL = GO_BACKEND_URL;
-  }
 
   setToken(token: string | null) {
     this.token = token;
+  }
+
+  getToken(): string | null {
+    return this.token;
   }
 
   private getHeaders(): Record<string, string> {
@@ -38,7 +45,8 @@ class APIClient {
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const { method = "GET", body, headers = {} } = options;
-    const url = this.backendURL ? `${this.backendURL}${path}` : `${API_BASE}${path}`;
+    const normalized = path.startsWith("/") ? path : `/${path}`;
+    const url = `${apiRoot()}${normalized}`;
 
     const response = await fetch(url, {
       method,
@@ -51,23 +59,32 @@ class APIClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: "Request failed" }));
-      throw new Error(error.error || `HTTP ${response.status}`);
+      throw new Error((error as { error?: string }).error || `HTTP ${response.status}`);
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
     }
 
     return response.json();
   }
 
   // Tests
-  async getTests(params?: { projectId?: string; status?: string; limit?: number; offset?: number }) {
+  async getTests(params?: {
+    projectId?: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }) {
     const searchParams = new URLSearchParams();
     if (params?.projectId) searchParams.set("projectId", params.projectId);
     if (params?.status) searchParams.set("status", params.status);
     if (params?.limit) searchParams.set("limit", params.limit.toString());
     if (params?.offset) searchParams.set("offset", params.offset.toString());
-    
+
     const query = searchParams.toString();
     return this.request<{ tests: Array<Record<string, unknown>>; total: number }>(
-      `/tests${query ? `?${query}` : ""}`
+      `/tests${query ? `?${query}` : ""}`,
     );
   }
 
@@ -75,7 +92,14 @@ class APIClient {
     return this.request<Record<string, unknown>>(`/tests/${id}`);
   }
 
-  async createTest(data: { name: string; description?: string; scriptType: string; targetUrl: string; virtualUsers: number; projectId?: string }) {
+  async createTest(data: {
+    name: string;
+    description?: string;
+    scriptType: string;
+    targetUrl: string;
+    virtualUsers: number;
+    projectId?: string;
+  }) {
     return this.request<Record<string, unknown>>("/tests", { method: "POST", body: data });
   }
 
@@ -87,8 +111,14 @@ class APIClient {
     return this.request<{ success: boolean }>(`/tests/${id}`, { method: "DELETE" });
   }
 
-  async startTest(id: string, config?: { duration?: number; rampUpDuration?: number; thinkTime?: number; method?: string }) {
-    return this.request<Record<string, unknown>>(`/tests/${id}/start`, { method: "POST", body: config });
+  async startTest(
+    id: string,
+    config?: { duration?: number; rampUpDuration?: number; thinkTime?: number; method?: string },
+  ) {
+    return this.request<Record<string, unknown>>(`/tests/${id}/start`, {
+      method: "POST",
+      body: config ?? {},
+    });
   }
 
   async stopTest(id: string) {
@@ -96,16 +126,21 @@ class APIClient {
   }
 
   // Runs
-  async getRuns(params?: { testId?: string; status?: string; limit?: number; offset?: number }) {
+  async getRuns(params?: {
+    testId?: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }) {
     const searchParams = new URLSearchParams();
     if (params?.testId) searchParams.set("testId", params.testId);
     if (params?.status) searchParams.set("status", params.status);
     if (params?.limit) searchParams.set("limit", params.limit.toString());
     if (params?.offset) searchParams.set("offset", params.offset.toString());
-    
+
     const query = searchParams.toString();
     return this.request<{ runs: Array<Record<string, unknown>>; total: number }>(
-      `/runs${query ? `?${query}` : ""}`
+      `/runs${query ? `?${query}` : ""}`,
     );
   }
 
@@ -159,7 +194,12 @@ class APIClient {
     return this.request<Array<Record<string, unknown>>>("/schedules");
   }
 
-  async createSchedule(data: { testId: string; name: string; frequency: string; cronExpression?: string }) {
+  async createSchedule(data: {
+    testId: string;
+    name: string;
+    frequency: string;
+    cronExpression?: string;
+  }) {
     return this.request<Record<string, unknown>>("/schedules", { method: "POST", body: data });
   }
 
@@ -169,7 +209,13 @@ class APIClient {
     return this.request<Array<Record<string, unknown>>>(`/sla/thresholds${query}`);
   }
 
-  async createSLAThreshold(data: { name: string; metric: string; condition: string; value: number; projectId?: string }) {
+  async createSLAThreshold(data: {
+    name: string;
+    metric: string;
+    condition: string;
+    value: number;
+    projectId?: string;
+  }) {
     return this.request<Record<string, unknown>>("/sla/thresholds", { method: "POST", body: data });
   }
 
@@ -184,7 +230,14 @@ class APIClient {
     return this.request<Array<Record<string, unknown>>>(`/templates${query}`);
   }
 
-  async createTemplate(data: { name: string; description?: string; scriptType: string; targetUrl: string; virtualUsers: number; projectId?: string }) {
+  async createTemplate(data: {
+    name: string;
+    description?: string;
+    scriptType: string;
+    targetUrl: string;
+    virtualUsers: number;
+    projectId?: string;
+  }) {
     return this.request<Record<string, unknown>>("/templates", { method: "POST", body: data });
   }
 
@@ -194,15 +247,18 @@ class APIClient {
     if (params?.userId) searchParams.set("userId", params.userId);
     if (params?.resourceType) searchParams.set("resourceType", params.resourceType);
     if (params?.limit) searchParams.set("limit", params.limit.toString());
-    
+
     const query = searchParams.toString();
-    return this.request<Array<Record<string, unknown>>>(
-      `/audit${query ? `?${query}` : ""}`
-    );
+    return this.request<Array<Record<string, unknown>>>(`/audit${query ? `?${query}` : ""}`);
   }
 
-  // Health
+  // Health (Go exposes /health outside /api)
   async healthCheck() {
+    if (GO_BACKEND_URL) {
+      const response = await fetch(`${GO_BACKEND_URL}/health`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json() as Promise<{ status: string; service: string; version: string }>;
+    }
     return this.request<{ status: string; service: string; version: string }>("/health");
   }
 }

@@ -107,13 +107,14 @@ export function LoginForm() {
             <p className="mb-2 text-center text-xs text-slate-500">Demo accounts:</p>
             <div className="space-y-1 text-xs text-slate-600">
               <p>
-                <span className="font-medium">Admin:</span> admin@example.com / admin123
+                <span className="font-medium">Control plane:</span> admin@speedrunner.local /
+                admin123
               </p>
               <p>
-                <span className="font-medium">Editor:</span> editor@example.com / editor123
+                <span className="font-medium">Mock admin:</span> admin@example.com / admin123
               </p>
               <p>
-                <span className="font-medium">Viewer:</span> viewer@example.com / viewer123
+                <span className="font-medium">Mock editor:</span> editor@example.com / editor123
               </p>
             </div>
           </div>

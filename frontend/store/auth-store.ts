@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { generateToken } from "@/lib/auth";
+import { apiClient, isGoBackendEnabled } from "@/lib/api-client";
 import type {
   AuthState,
   CreateUserData,
@@ -11,6 +12,25 @@ import type {
 } from "@/types";
 
 const STORAGE_KEY = "speedrunner-auth";
+const TOKEN_KEY = "speedrunner-token";
+
+/** Map Go control-plane roles onto the UI role set. */
+export function mapBackendRole(role: string): UserRole {
+  switch (role) {
+    case "PLATFORM_ADMIN":
+    case "admin":
+      return "admin";
+    case "PERFORMANCE_LEAD":
+    case "PERFORMANCE_ENGINEER":
+    case "DEVELOPER":
+    case "QA":
+    case "SERVICE_ACCOUNT":
+    case "editor":
+      return "editor";
+    default:
+      return "viewer";
+  }
+}
 
 const mockUsers: (User & { password: string })[] = [
   {
@@ -119,17 +139,76 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   error: null,
 
   initialize: () => {
-    const { user } = getStoredAuth();
-    if (user) {
+    const { user, token } = getStoredAuth();
+    if (user && token) {
+      apiClient.setToken(token);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(TOKEN_KEY, token);
+      }
       set({ user, isAuthenticated: true });
+      return;
+    }
+
+    // Restore token from API login path and validate against Go backend
+    if (typeof window !== "undefined" && isGoBackendEnabled()) {
+      const storedToken = localStorage.getItem(TOKEN_KEY);
+      if (storedToken) {
+        apiClient.setToken(storedToken);
+        void apiClient
+          .getMe()
+          .then((me) => {
+            const mapped: User = {
+              id: me.id as string,
+              email: me.email as string,
+              name: me.name as string,
+              role: mapBackendRole((me.role as string) || "READ_ONLY"),
+              createdAt: (me.createdAt as string) || new Date().toISOString(),
+              lastLoginAt: null,
+            };
+            saveAuth(mapped, storedToken);
+            set({ user: mapped, isAuthenticated: true });
+          })
+          .catch(() => {
+            localStorage.removeItem(TOKEN_KEY);
+            apiClient.setToken(null);
+            clearAuth();
+          });
+      }
     }
   },
 
   login: async (credentials) => {
     set({ isLoading: true, error: null });
 
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Prefer Go control plane when configured
+    if (isGoBackendEnabled()) {
+      try {
+        const response = await apiClient.login(credentials.email, credentials.password);
+        const raw = response.user;
+        const user: User = {
+          id: raw.id as string,
+          email: raw.email as string,
+          name: raw.name as string,
+          role: mapBackendRole((raw.role as string) || "READ_ONLY"),
+          createdAt: (raw.createdAt as string) || new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+        };
+        apiClient.setToken(response.token);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(TOKEN_KEY, response.token);
+        }
+        saveAuth(user, response.token);
+        set({ user, isAuthenticated: true, isLoading: false });
+        return true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Login failed";
+        set({ isLoading: false, error: message });
+        return false;
+      }
+    }
+
+    // Mock auth fallback (demo without backend)
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     const foundUser = mockUsers.find(
       (u) => u.email === credentials.email && u.password === credentials.password,
@@ -155,6 +234,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   logout: () => {
     clearAuth();
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+    apiClient.setToken(null);
     set({ user: null, isAuthenticated: false, error: null });
   },
 
@@ -236,7 +319,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     const { user } = get();
     if (!user) return false;
 
-    const permissions = rolePermissions[user.role];
+    const permissions = rolePermissions[user.role] ?? [];
     return permissions.some(
       (p) => p.action === action && p.resource === resource,
     );
@@ -251,7 +334,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 export function usePermission(action: Permission["action"], resource: Permission["resource"]) {
   return useAuthStore((state) => {
     if (!state.user) return false;
-    const permissions = rolePermissions[state.user.role];
+    const permissions = rolePermissions[state.user.role] ?? [];
     return permissions.some((p) => p.action === action && p.resource === resource);
   });
 }

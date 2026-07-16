@@ -3,7 +3,7 @@ package redis
 import (
 	"context"
 	"fmt"
-
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -15,13 +15,28 @@ type RedisClient struct {
 	client *redis.Client
 }
 
-func NewRedis(cfg config.RedisConfig) *RedisClient {
-	client := redis.NewClient(&redis.Options{
-		Addr:     cfg.URL,
-		Password: "",
-		DB:       0,
-	})
-	return &RedisClient{client: client}
+func NewRedis(cfg config.RedisConfig) (*RedisClient, error) {
+	opts, err := parseRedisOptions(cfg.URL)
+	if err != nil {
+		return nil, err
+	}
+	client := redis.NewClient(opts)
+	return &RedisClient{client: client}, nil
+}
+
+func parseRedisOptions(url string) (*redis.Options, error) {
+	if url == "" {
+		return &redis.Options{Addr: "localhost:6379"}, nil
+	}
+	if strings.HasPrefix(url, "redis://") || strings.HasPrefix(url, "rediss://") {
+		return redis.ParseURL(url)
+	}
+	// Plain host:port
+	return &redis.Options{Addr: url}, nil
+}
+
+func (r *RedisClient) Client() *redis.Client {
+	return r.client
 }
 
 func (r *RedisClient) Ping(ctx context.Context) error {
