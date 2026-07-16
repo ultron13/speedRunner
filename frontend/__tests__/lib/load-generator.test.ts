@@ -65,10 +65,9 @@ describe("LoadGeneratorManager", () => {
     expect(loadGeneratorManager.isTestRunning("nonexistent")).toBe(false);
   });
 
-  it("stopTest returns false for non-running test", async () => {
+  it("stopTest completes without error for non-running test", async () => {
     const { loadGeneratorManager } = await import("@/lib/load-generator-manager");
-    const result = await loadGeneratorManager.stopTest("nonexistent");
-    expect(result).toBe(false);
+    await expect(loadGeneratorManager.stopTest("nonexistent")).resolves.toBeUndefined();
   });
 });
 
@@ -103,9 +102,8 @@ describe("WSMetricsBridge", () => {
     expect(wsMetricsBridge.isTestRunning("test-1")).toBe(false);
   });
 
-  it("stopTest returns false for non-running test", async () => {
+  it("stopTest completes without error for non-running test", async () => {
     const { wsMetricsBridge } = await import("@/lib/ws-metrics-bridge");
-    const result = await wsMetricsBridge.stopTest("nonexistent");
-    expect(result).toBe(false);
+    await expect(wsMetricsBridge.stopTest("nonexistent")).resolves.toBeUndefined();
   });
 });
