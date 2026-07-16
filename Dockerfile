@@ -24,9 +24,6 @@ COPY frontend/ ./
 # Build the application
 RUN npm run build
 
-# Compile the custom server
-RUN npx tsc server.production.ts --outDir . --esModuleInterop --moduleResolution node --target ES2020 --module commonjs
-
 # Stage 3: Production
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -44,8 +41,12 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Copy compiled custom server
-COPY --from=builder /app/server.production.js ./server.js
+# Copy server source and tsconfig for tsx runtime
+COPY --from=builder /app/server.production.ts ./server.ts
+COPY --from=builder /app/tsconfig.json ./
+
+# Install tsx for running TypeScript directly
+RUN npm install -g tsx
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs
@@ -65,5 +66,5 @@ EXPOSE 9090
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:9090/health || exit 1
 
-# Start the application
-CMD ["node", "server.js"]
+# Start the application using tsx to handle path aliases
+CMD ["tsx", "server.ts"]
