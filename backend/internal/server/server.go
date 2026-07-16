@@ -1,30 +1,49 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/google/uuid"
 
+	"github.com/belo/speedrunner/backend/internal/ai"
 	"github.com/belo/speedrunner/backend/internal/config"
+	"github.com/belo/speedrunner/backend/internal/cost"
 	"github.com/belo/speedrunner/backend/internal/db"
 	"github.com/belo/speedrunner/backend/internal/db/queries"
+	"github.com/belo/speedrunner/backend/internal/integrations"
 	redisclient "github.com/belo/speedrunner/backend/internal/redis"
+	"github.com/belo/speedrunner/backend/internal/region"
 )
 
 type Server struct {
-	Router   *chi.Mux
-	Config   *config.Config
-	DB       *db.Postgres
-	Redis    *redisclient.RedisClient
-	Users    *queries.UserQueries
-	Projects *queries.ProjectQueries
-	Tests    *queries.TestQueries
-	Runs     *queries.RunQueries
-	Audit    *queries.AuditQueries
+	Router    *chi.Mux
+	Config    *config.Config
+	DB        *db.Postgres
+	Redis     *redisclient.RedisClient
+	Users     *queries.UserQueries
+	Projects  *queries.ProjectQueries
+	Tests     *queries.TestQueries
+	Runs      *queries.RunQueries
+	Audit     *queries.AuditQueries
+	Schedules *queries.ScheduleQueries
+	SLA       *queries.SLAQueries
+	Templates *queries.TemplateQueries
+	APIKeys   *queries.APIKeyQueries
+	Runner    *RunnerOrchestrator
+	Webhooks  *integrations.Dispatcher
+	Cost      *cost.Estimator
+	AI        *ai.Detector
+	Regions   *region.Registry
+	httpSrv   *http.Server
 }
 
 type Deps struct {
@@ -35,10 +54,14 @@ type Deps struct {
 
 func New(deps Deps) *Server {
 	s := &Server{
-		Router: chi.NewRouter(),
-		Config: deps.Config,
-		DB:     deps.DB,
-		Redis:  deps.Redis,
+		Router:   chi.NewRouter(),
+		Config:   deps.Config,
+		DB:       deps.DB,
+		Redis:    deps.Redis,
+		Webhooks: integrations.NewDispatcher(),
+		Cost:     cost.NewDefault(),
+		AI:       ai.NewDetector(),
+		Regions:  region.NewRegistry(),
 	}
 	if deps.DB != nil {
 		pool := deps.DB.Pool
@@ -47,6 +70,11 @@ func New(deps Deps) *Server {
 		s.Tests = queries.NewTestQueries(pool)
 		s.Runs = queries.NewRunQueries(pool)
 		s.Audit = queries.NewAuditQueries(pool)
+		s.Schedules = queries.NewScheduleQueries(pool)
+		s.SLA = queries.NewSLAQueries(pool)
+		s.Templates = queries.NewTemplateQueries(pool)
+		s.APIKeys = queries.NewAPIKeyQueries(pool)
+		s.Runner = NewRunnerOrchestrator(s.Runs, s.Tests, s.SLA, deps.Redis, s.Webhooks)
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -74,6 +102,8 @@ func (s *Server) setupRoutes() {
 	s.Router.Get("/ready", s.readyHandler)
 
 	s.Router.Route("/api", func(r chi.Router) {
+		r.Get("/openapi.json", s.openAPIHandler)
+
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/login", s.loginHandler)
 			r.Post("/register", s.registerHandler)
@@ -119,13 +149,33 @@ func (s *Server) setupRoutes() {
 			r.Route("/sla", func(r chi.Router) {
 				r.With(s.requirePermission("sla:read")).Get("/thresholds", s.listSLAThresholdsHandler)
 				r.With(s.requirePermission("sla:write")).Post("/thresholds", s.createSLAThresholdHandler)
+				r.With(s.requirePermission("sla:write")).Delete("/thresholds/{id}", s.deleteSLAThresholdHandler)
 				r.With(s.requirePermission("sla:read")).Get("/results", s.listSLAResultsHandler)
 			})
 
 			r.Route("/templates", func(r chi.Router) {
 				r.With(s.requirePermission("test:read")).Get("/", s.listTemplatesHandler)
 				r.With(s.requirePermission("test:write")).Post("/", s.createTemplateHandler)
+				r.With(s.requirePermission("test:write")).Post("/{id}/apply", s.applyTemplateHandler)
+				r.With(s.requirePermission("test:write")).Delete("/{id}", s.deleteTemplateHandler)
 			})
+
+			r.Route("/api-keys", func(r chi.Router) {
+				r.With(s.requirePermission("test:read")).Get("/", s.listAPIKeysHandler)
+				r.With(s.requirePermission("test:write")).Post("/", s.createAPIKeyHandler)
+				r.With(s.requirePermission("test:write")).Delete("/{id}", s.deleteAPIKeyHandler)
+			})
+
+			r.Route("/webhooks", func(r chi.Router) {
+				r.With(s.requirePermission("admin:read")).Get("/", s.listWebhooksHandler)
+				r.With(s.requirePermission("admin:write")).Post("/", s.createWebhookHandler)
+				r.With(s.requirePermission("admin:write")).Delete("/{id}", s.deleteWebhookHandler)
+			})
+
+			r.With(s.requirePermission("run:read")).Post("/cost/estimate", s.costEstimateHandler)
+			r.With(s.requirePermission("test:read")).Post("/ai/recommend", s.aiRecommendHandler)
+			r.With(s.requirePermission("run:read")).Post("/ai/anomaly", s.aiAnomalyHandler)
+			r.With(s.requirePermission("project:read")).Get("/regions", s.listRegionsHandler)
 
 			r.Route("/audit", func(r chi.Router) {
 				r.With(s.requirePermission("audit:read")).Get("/", s.listAuditLogsHandler)
@@ -148,7 +198,7 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "healthy",
 		"service": "speedrunner-backend",
-		"version": "0.1.0",
+		"version": "0.2.0",
 	})
 }
 
@@ -169,8 +219,76 @@ func (s *Server) readyHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
+// StartScheduleLoop polls due schedules and starts tests.
+func (s *Server) StartScheduleLoop(ctx context.Context) {
+	if s.Schedules == nil || s.Tests == nil || s.Runs == nil {
+		return
+	}
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	log.Println("[scheduler] schedule loop started (30s poll)")
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("[scheduler] schedule loop stopped")
+			return
+		case <-ticker.C:
+			s.processDueSchedules(ctx)
+		}
+	}
+}
+
+func (s *Server) processDueSchedules(parent context.Context) {
+	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
+	defer cancel()
+
+	due, err := s.Schedules.ListDue(ctx, time.Now())
+	if err != nil {
+		log.Printf("[scheduler] list due: %v", err)
+		return
+	}
+	for _, sched := range due {
+		test, err := s.Tests.Get(ctx, sched.TestID)
+		if err != nil || test == nil {
+			log.Printf("[scheduler] test %s not found for schedule %s", sched.TestID, sched.ID)
+			next := ScheduleNextRun(sched.Frequency, time.Now())
+			_ = s.Schedules.MarkExecuted(ctx, sched.ID, &next)
+			continue
+		}
+		if strings.EqualFold(test.Status, "RUNNING") {
+			next := ScheduleNextRun(sched.Frequency, time.Now())
+			_ = s.Schedules.MarkExecuted(ctx, sched.ID, &next)
+			continue
+		}
+
+		run, err := s.Runs.Create(ctx, uuid.New().String(), test.ID, "SCHEDULED", nil)
+		if err != nil {
+			log.Printf("[scheduler] create run: %v", err)
+			continue
+		}
+		_ = s.Tests.UpdateStatus(ctx, test.ID, "RUNNING")
+		_ = s.Tests.SetLastRun(ctx, test.ID)
+		if s.Runner != nil {
+			if err := s.Runner.Start(ctx, run.ID, test); err != nil {
+				log.Printf("[scheduler] start runner: %v", err)
+			}
+		}
+		next := ScheduleNextRun(sched.Frequency, time.Now())
+		_ = s.Schedules.MarkExecuted(ctx, sched.ID, &next)
+		log.Printf("[scheduler] started run %s for schedule %s (test %s)", run.ID, sched.ID, test.ID)
+	}
+}
+
 func (s *Server) ListenAndServe() error {
 	addr := fmt.Sprintf("%s:%d", s.Config.Server.Host, s.Config.Server.Port)
+	s.httpSrv = &http.Server{Addr: addr, Handler: s.Router}
 	fmt.Printf("[server] Starting on %s\n", addr)
-	return http.ListenAndServe(addr, s.Router)
+	return s.httpSrv.ListenAndServe()
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.httpSrv != nil {
+		return s.httpSrv.Shutdown(ctx)
+	}
+	return nil
 }

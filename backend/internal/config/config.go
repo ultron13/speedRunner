@@ -39,6 +39,8 @@ type K8sConfig struct {
 }
 
 type EngineConfig struct {
+	// Mode: simulate | http | jmeter | k6
+	Mode        string
 	JMeterImage string
 	DefaultVUs  int
 	MaxVUs      int
@@ -66,6 +68,7 @@ func Load() *Config {
 			SystemNS:    getEnv("K8S_SYSTEM_NS", "marathonrunner-system"),
 		},
 		Engine: EngineConfig{
+			Mode:        getEnv("ENGINE_MODE", "simulate"),
 			JMeterImage: getEnv("JMETER_IMAGE", "apache/jmeter:5.6.3"),
 			DefaultVUs:  getEnvInt("DEFAULT_VUS", 10),
 			MaxVUs:      getEnvInt("MAX_VUS", 1000),

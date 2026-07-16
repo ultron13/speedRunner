@@ -562,8 +562,13 @@ func (s *Server) startTestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Tests.SetLastRun(r.Context(), id)
 
-	// Phase 1: state transition only. Phase 2 will spawn a real engine.
-	if s.Redis != nil {
+	// Start simulation engine (persists metrics every second)
+	if s.Runner != nil {
+		if err := s.Runner.Start(r.Context(), run.ID, test); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to start simulation engine")
+			return
+		}
+	} else if s.Redis != nil {
 		_ = s.Redis.Set(r.Context(), redisStatusKey(run.ID), "RUNNING", 24*time.Hour)
 	}
 
@@ -572,7 +577,7 @@ func (s *Server) startTestHandler(w http.ResponseWriter, r *http.Request) {
 		"run":    run,
 		"testId": id,
 		"status": "RUNNING",
-		"mode":   "simulate", // until Phase 2 execution
+		"mode":   "simulate",
 	})
 }
 
@@ -601,12 +606,19 @@ func (s *Server) stopTestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if active != nil {
-		if err := s.Runs.Stop(r.Context(), active.ID); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to stop run")
-			return
-		}
-		if s.Redis != nil {
-			_ = s.Redis.Set(r.Context(), redisStatusKey(active.ID), "STOPPED", 24*time.Hour)
+		if s.Runner != nil {
+			if err := s.Runner.Stop(r.Context(), active.ID, "STOPPED"); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to stop run")
+				return
+			}
+		} else {
+			if err := s.Runs.Stop(r.Context(), active.ID); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to stop run")
+				return
+			}
+			if s.Redis != nil {
+				_ = s.Redis.Set(r.Context(), redisStatusKey(active.ID), "STOPPED", 24*time.Hour)
+			}
 		}
 	}
 
@@ -725,7 +737,12 @@ func (s *Server) stopRunHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "run is not running")
 		return
 	}
-	if err := s.Runs.Stop(r.Context(), id); err != nil {
+	if s.Runner != nil {
+		if err := s.Runner.Stop(r.Context(), id, "STOPPED"); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to stop run")
+			return
+		}
+	} else if err := s.Runs.Stop(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to stop run")
 		return
 	}
@@ -745,44 +762,6 @@ func (s *Server) getRunMetricsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, metrics)
-}
-
-// ── Placeholders (Phase 3) ──────────────────────────────────────────────────
-
-func (s *Server) listSchedulesHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, []interface{}{})
-}
-
-func (s *Server) createScheduleHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "schedules not implemented yet"})
-}
-
-func (s *Server) updateScheduleHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "schedules not implemented yet"})
-}
-
-func (s *Server) deleteScheduleHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "schedules not implemented yet"})
-}
-
-func (s *Server) listSLAThresholdsHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, []interface{}{})
-}
-
-func (s *Server) createSLAThresholdHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "SLA not implemented yet"})
-}
-
-func (s *Server) listSLAResultsHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, []interface{}{})
-}
-
-func (s *Server) listTemplatesHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, []interface{}{})
-}
-
-func (s *Server) createTemplateHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "templates not implemented yet"})
 }
 
 func (s *Server) listAuditLogsHandler(w http.ResponseWriter, r *http.Request) {

@@ -63,8 +63,13 @@ func main() {
 		Redis:  rdb,
 	})
 
+	// Background schedule loop
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	defer loopCancel()
+	go srv.StartScheduleLoop(loopCtx)
+
 	go func() {
-		if err := srv.ListenAndServe(); err != nil {
+		if err := srv.ListenAndServe(); err != nil && err.Error() != "http: Server closed" {
 			fmt.Fprintf(os.Stderr, "[fatal] server error: %v\n", err)
 			os.Exit(1)
 		}
@@ -74,6 +79,10 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	fmt.Println("\n[shutdown] shutting down gracefully...")
+	loopCancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	_ = srv.Shutdown(shutdownCtx)
 	if rdb != nil {
 		_ = rdb.Close()
 	}

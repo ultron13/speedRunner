@@ -1,6 +1,6 @@
 # SpeedRunner Architecture Decisions
 
-**Status:** Active (Phase 0–1)  
+**Status:** Active (Phase 1 complete → Phase 2–3 in progress)  
 **Last updated:** 2026-07-16
 
 ## Product identity
@@ -14,13 +14,13 @@
 
 | Concern | Owner | Notes |
 | --- | --- | --- |
-| **API & control plane** | Go backend (`backend/`) | Single system of record for auth, projects, tests, runs, SLA, audit |
-| **Metadata store** | PostgreSQL | Schema migrations owned by Go (`internal/db/postgres.go`) |
+| **API & control plane** | Go backend (`backend/`) | Auth, projects, tests, runs, schedules, SLA, templates, audit, API keys |
+| **Metadata store** | PostgreSQL | Schema migrations in `internal/db/postgres.go` |
 | **Runtime cache / live metrics** | Redis | Run status, live metric snapshots, pub/sub |
-| **Artifacts** | MinIO / S3 (Phase 5) | JTL, logs, reports — not required for Phase 1 |
-| **Portal UI** | Next.js (`frontend/`) | Thin client: REST + WebSocket |
-| **Next.js `/api/*` + Prisma** | Legacy / BFF fallback | Prefer Go when `NEXT_PUBLIC_API_URL` is set; do not diverge schemas long-term |
-| **Simulation engine** | `ENGINE_MODE=simulate` (default until Phase 2) | Demo fallback only; not production load |
+| **Artifacts** | MinIO / S3 + `MemoryStorage` | Memory store for local/dev; MinIO stub for prod path |
+| **Portal UI** | Next.js (`frontend/`) | Thin client: REST + WebSocket demo mode |
+| **Next.js `/api/*` + Prisma** | Legacy / BFF fallback | Prefer Go when `NEXT_PUBLIC_API_URL` is set |
+| **Simulation engine** | `engine/simulate` (default) | Persists metrics every 1s; real engines: HTTP, JMeter, k6 scaffolds |
 
 ## Request flow (target)
 
@@ -30,7 +30,7 @@ Browser
   → REST  NEXT_PUBLIC_API_URL → Go API (:8080 /api/*)
   → WS    (Phase 2+) live metrics from control plane / Redis
   → Postgres (durable) + Redis (ephemeral)
-  → Engine (HTTP local → JMeter/k6 Jobs on K8s)
+  → Engine (simulate | HTTP | JMeter/k6 Jobs on K8s)
 ```
 
 ## Run modes
@@ -38,36 +38,85 @@ Browser
 | Mode | How | Data path |
 | --- | --- | --- |
 | **UI demo only** | `cd frontend && npm run dev` | Mock store + local WS simulation in `server.ts` |
-| **Full local stack** | `docker compose up` | App + Redis + Postgres (UI may still simulate until wired) |
-| **Control plane** | Postgres + Redis + `backend` binary | Real CRUD, JWT auth, audit |
+| **Full local stack** | `docker compose -f docker-compose.yml -f docker-compose.backend.yml up` | App + Redis + Postgres + Go API |
+| **Control plane** | Postgres + Redis + `backend` binary | Real CRUD, JWT auth, audit, schedules, SLA |
 | **API-backed UI** | `NEXT_PUBLIC_API_URL=http://localhost:8080` | Frontend talks to Go; mock hydrate disabled |
 
-## Deferred until backend exists
+## Implemented control-plane API (v0.2.0)
 
-These UI modules are **mock / localStorage only** and must not grow until APIs land:
+| Area | Endpoints | Status |
+| --- | --- | --- |
+| Auth | `/api/auth/login`, `/register`, `/me` | Done |
+| Projects | CRUD `/api/projects` | Done |
+| Tests | CRUD + `/start` + `/stop` | Done (+ simulate engine) |
+| Runs | List/create/get/stop/metrics | Done (+ metric ticks) |
+| Schedules | CRUD `/api/schedules` + 30s poll loop | Done |
+| SLA | Thresholds + results + auto-eval on stop | Done |
+| Templates | CRUD + `/apply` | Done |
+| API keys | Create/list/delete | Done |
+| Webhooks | Register/list/delete + lifecycle events | Done (in-memory) |
+| Cost | `POST /api/cost/estimate` | Done |
+| AI | `POST /api/ai/recommend`, `/ai/anomaly` | Done (statistical) |
+| Regions | `GET /api/regions` | Done (registry) |
+| OpenAPI | `GET /api/openapi.json` | Done |
+| Audit | `GET /api/audit` | Done |
 
-- AI analytics panels (`components/ai/*`)
-- CI/CD / deployment mock stores
-- Collaboration / team workspaces (local)
-- Security 2FA / session mock panels
-- Integration webhooks stored only in localStorage
+## Backend packages
+
+| Package | Role |
+| --- | --- |
+| `server` | HTTP API, runner orchestrator, schedule loop |
+| `db/queries` | Users, projects, tests, runs, schedules, SLA, templates, API keys, audit |
+| `engine/simulate` | Bounded random-walk live metrics |
+| `engine/httpengine` | Real HTTP load (dev/light) |
+| `engine/jmeter`, `engine/k6` | K8s job scaffolds |
+| `controller` | Run lifecycle state machine |
+| `scheduler` | In-memory schedule helpers + capacity/approval |
+| `policy` | Execution guardrails |
+| `results` | Parse/aggregate/evaluate |
+| `k8s` | Jobs, pods, cleanup |
+| `cost` | Run cost estimator |
+| `ai` | Anomaly detection + load profile recommendations |
+| `telemetry` | W3C correlation IDs |
+| `integrations` | Webhook dispatcher |
+| `chatops` | Slack/Teams command parser |
+| `cicd` | Pipeline event registry |
+| `region` | Multi-region capacity registry |
+| `impact` | Bottleneck correlation |
+| `api` | OpenAPI document |
+| `storage` | Object storage interface + memory impl |
+
+## Default credentials (local seed)
+
+- Email: `admin@speedrunner.local`
+- Password: `admin123`
+- Role: `PLATFORM_ADMIN`
 
 ## JSON contract
 
-API responses use **camelCase** for field names (`projectId`, `virtualUsers`, `avgResponseTime`) for frontend compatibility.
+API responses use **camelCase** (`projectId`, `virtualUsers`, `avgResponseTime`).
 
 Auth: `Authorization: Bearer <jwt>`  
 Roles: `PLATFORM_ADMIN`, `PERFORMANCE_LEAD`, `PERFORMANCE_ENGINEER`, `DEVELOPER`, `QA`, `RELEASE_MANAGER`, `READ_ONLY`, `SERVICE_ACCOUNT`
 
-## Phase roadmap (summary)
+## Phase roadmap
 
-See session plan / `Implementation/32-Full-Project-Implementation-Backlog.md`.
+1. **Foundation (persist + auth)** — **complete**
+2. **Real execution** — HTTP engine done; JMeter/k6 K8s jobs next
+3. **LoadRunner parity** — schedules/SLA/templates done; pools & reporting next
+4. **UX routes** — multi-page portal
+5. **K8s depth** — operator, KEDA
+6. **Observability + CI gates** — OTEL exporters, gate endpoints
+7. **Real AI** — swap statistical detector for model-backed analysis
+8. **Integrations / multi-region** — packages scaffolded; persistence next
 
-1. Foundation (persist + auth) — **in progress**  
-2. Real execution  
-3. LoadRunner parity  
-4. UX routes  
-5. K8s depth  
-6. Observability + CI gates  
-7. Real AI  
-8. Integrations / multi-region  
+## Deferred UI modules (mock / localStorage)
+
+Until APIs land for them, these remain client-only:
+
+- Full CI/CD pipeline UI wiring
+- Collaboration / team workspaces
+- Security 2FA panels
+- Advanced AI charts beyond `/api/ai/*`
+
+See `Implementation/32-Full-Project-Implementation-Backlog.md` for the full epic list.

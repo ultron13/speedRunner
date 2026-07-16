@@ -190,8 +190,9 @@ class APIClient {
   }
 
   // Schedules
-  async getSchedules() {
-    return this.request<Array<Record<string, unknown>>>("/schedules");
+  async getSchedules(testId?: string) {
+    const query = testId ? `?testId=${encodeURIComponent(testId)}` : "";
+    return this.request<Array<Record<string, unknown>>>(`/schedules${query}`);
   }
 
   async createSchedule(data: {
@@ -201,6 +202,17 @@ class APIClient {
     cronExpression?: string;
   }) {
     return this.request<Record<string, unknown>>("/schedules", { method: "POST", body: data });
+  }
+
+  async updateSchedule(
+    id: string,
+    data: { name?: string; frequency?: string; cronExpression?: string; enabled?: boolean },
+  ) {
+    return this.request<Record<string, unknown>>(`/schedules/${id}`, { method: "PUT", body: data });
+  }
+
+  async deleteSchedule(id: string) {
+    return this.request<{ success: boolean }>(`/schedules/${id}`, { method: "DELETE" });
   }
 
   // SLA
@@ -217,6 +229,10 @@ class APIClient {
     projectId?: string;
   }) {
     return this.request<Record<string, unknown>>("/sla/thresholds", { method: "POST", body: data });
+  }
+
+  async deleteSLAThreshold(id: string) {
+    return this.request<{ success: boolean }>(`/sla/thresholds/${id}`, { method: "DELETE" });
   }
 
   async getSLAResults(runId?: string) {
@@ -239,6 +255,77 @@ class APIClient {
     projectId?: string;
   }) {
     return this.request<Record<string, unknown>>("/templates", { method: "POST", body: data });
+  }
+
+  async applyTemplate(id: string) {
+    return this.request<Record<string, unknown>>(`/templates/${id}/apply`, { method: "POST" });
+  }
+
+  async deleteTemplate(id: string) {
+    return this.request<{ success: boolean }>(`/templates/${id}`, { method: "DELETE" });
+  }
+
+  // API Keys
+  async getAPIKeys() {
+    return this.request<Array<Record<string, unknown>>>("/api-keys");
+  }
+
+  async createAPIKey(data: { name: string; expiresInDays?: number }) {
+    return this.request<Record<string, unknown>>("/api-keys", { method: "POST", body: data });
+  }
+
+  async deleteAPIKey(id: string) {
+    return this.request<{ success: boolean }>(`/api-keys/${id}`, { method: "DELETE" });
+  }
+
+  // Webhooks
+  async getWebhooks() {
+    return this.request<Array<Record<string, unknown>>>("/webhooks");
+  }
+
+  async createWebhook(data: { name: string; url: string; secret?: string; events?: string[] }) {
+    return this.request<Record<string, unknown>>("/webhooks", { method: "POST", body: data });
+  }
+
+  async deleteWebhook(id: string) {
+    return this.request<{ success: boolean }>(`/webhooks/${id}`, { method: "DELETE" });
+  }
+
+  // Cost estimation
+  async estimateCost(data: {
+    virtualUsers: number;
+    durationSec: number;
+    engine?: string;
+    networkGb?: number;
+    artifactGb?: number;
+  }) {
+    return this.request<Record<string, unknown>>("/cost/estimate", { method: "POST", body: data });
+  }
+
+  // AI assistants
+  async recommendLoadProfile(data: { goal: string; peakRps?: number }) {
+    return this.request<Record<string, unknown>>("/ai/recommend", { method: "POST", body: data });
+  }
+
+  async detectAnomaly(data: {
+    metric: string;
+    history: Array<{ timestamp: number; value: number }>;
+    current: number;
+  }) {
+    return this.request<{ anomaly: boolean; finding?: Record<string, unknown> }>("/ai/anomaly", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  // Regions
+  async getRegions() {
+    return this.request<Array<Record<string, unknown>>>("/regions");
+  }
+
+  // OpenAPI
+  async getOpenAPI() {
+    return this.request<Record<string, unknown>>("/openapi.json");
   }
 
   // Audit
