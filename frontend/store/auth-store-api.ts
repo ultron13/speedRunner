@@ -60,7 +60,7 @@ export async function fetchCurrentUser() {
     });
 
     return user;
-  } catch (error) {
+  } catch {
     // Token invalid or expired
     localStorage.removeItem("speedrunner-token");
     apiClient.setToken(null);

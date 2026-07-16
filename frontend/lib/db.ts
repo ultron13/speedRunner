@@ -1,9 +1,5 @@
 // Prisma client - lazy loaded to avoid build-time issues
-import type { PrismaClient } from "@prisma/client";
-
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
+import { PrismaClient } from "@prisma/client";
 
 let _prisma: PrismaClient | undefined;
 
@@ -16,9 +12,7 @@ export function getPrisma(): PrismaClient {
   }
 
   try {
-    // Dynamic import to avoid build issues
-    const { PrismaClient: PC } = require("@prisma/client");
-    const client = new PC({
+    const client = new PrismaClient({
       log: process.env.NODE_ENV === "development" ? ["error"] : ["error"],
     });
     _prisma = client;
@@ -29,9 +23,15 @@ export function getPrisma(): PrismaClient {
   }
 }
 
-// For backwards compatibility
+// For backwards compatibility - use a type-safe proxy
+
 export const prisma = new Proxy({} as PrismaClient, {
-  get(_, prop) {
-    return (getPrisma() as any)[prop];
+  get(_, prop: string | symbol) {
+    const client = getPrisma();
+    const value = client[prop as keyof PrismaClient];
+    if (typeof value === "function") {
+      return value.bind(client);
+    }
+    return value;
   },
 });

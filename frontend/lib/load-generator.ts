@@ -173,7 +173,6 @@ class LoadGenerator {
     }
 
     // Reset response times for next window (keep last 10s for percentile calculation)
-    const cutoff = now - 10000;
     this.responseTimes = this.responseTimes.filter((_, i) => {
       // Approximate: keep ~80% of recent values
       return i > this.responseTimes.length * 0.2;
