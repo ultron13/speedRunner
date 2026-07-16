@@ -25,6 +25,7 @@ import (
 	"github.com/belo/speedrunner/backend/internal/integrations"
 	k8sclient "github.com/belo/speedrunner/backend/internal/k8s"
 	"github.com/belo/speedrunner/backend/internal/operator"
+	"github.com/belo/speedrunner/backend/internal/platform"
 	"github.com/belo/speedrunner/backend/internal/policy"
 	redisclient "github.com/belo/speedrunner/backend/internal/redis"
 	"github.com/belo/speedrunner/backend/internal/region"
@@ -62,10 +63,17 @@ type Server struct {
 	ChatOps      *chatops.Service
 	Policy       *policy.PolicyEngine
 	Virtual      *enterprise.VirtualRegistry
-	Baselines    *enterprise.BaselineStore
-	Quotas       *enterprise.QuotaStore
-	httpSrv      *http.Server
-	cancelOps    context.CancelFunc
+	Baselines     *enterprise.BaselineStore
+	Quotas        *enterprise.QuotaStore
+	Flags         *platform.FeatureFlags
+	Maintenance   platform.MaintenanceWindow
+	ExecWindows   []platform.TimeWindow
+	Approvals     *platform.ApprovalStore
+	Notifications *platform.NotificationBus
+	Artifacts     *platform.ArtifactStore
+	Limiter       *platform.RateLimiter
+	httpSrv       *http.Server
+	cancelOps     context.CancelFunc
 }
 
 type Deps struct {
@@ -88,10 +96,15 @@ func New(deps Deps) *Server {
 		Regions:   region.NewRegistry(),
 		Impact:    impact.NewCorrelator(),
 		DataPools: testdata.NewManager(deps.Redis),
-		Virtual:   enterprise.NewVirtualRegistry(),
-		Baselines: enterprise.NewBaselineStore(),
-		Quotas:    enterprise.NewQuotaStore(),
-		Policy:    policy.DefaultEnterpriseEngine(10000),
+		Virtual:       enterprise.NewVirtualRegistry(),
+		Baselines:     enterprise.NewBaselineStore(),
+		Quotas:        enterprise.NewQuotaStore(),
+		Policy:        policy.DefaultEnterpriseEngine(10000),
+		Flags:         platform.NewFeatureFlags(),
+		Approvals:     platform.NewApprovalStore(),
+		Notifications: platform.NewNotificationBus(),
+		Artifacts:     platform.NewArtifactStore(),
+		Limiter:       platform.NewRateLimiter(50, 100),
 	}
 	if deps.Config != nil {
 		s.Policy = policy.DefaultEnterpriseEngine(deps.Config.Engine.MaxVUs)
@@ -150,6 +163,7 @@ func (s *Server) setupMiddleware() {
 	s.Router.Use(chimw.Recoverer)
 	s.Router.Use(chimw.Heartbeat("/ping"))
 	s.Router.Use(telemetry.Middleware)
+	s.Router.Use(s.rateLimitMiddleware)
 	s.Router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -160,9 +174,38 @@ func (s *Server) setupMiddleware() {
 	}))
 }
 
+func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.Limiter != nil {
+			key := clientIP(r)
+			if !s.Limiter.Allow(key) {
+				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+				return
+			}
+		}
+		// API version headers on all responses
+		for k, v := range platform.APIVersionHeaders("v1") {
+			w.Header().Set(k, v)
+		}
+		if s.Maintenance.Active(time.Now()) && r.URL.Path != "/health" && r.URL.Path != "/ready" && r.URL.Path != "/metrics" {
+			// Allow auth + health during maintenance; block mutations
+			if r.Method != http.MethodGet && r.Method != http.MethodOptions && !strings.HasPrefix(r.URL.Path, "/api/auth") {
+				msg := s.Maintenance.Message
+				if msg == "" {
+					msg = "platform is in maintenance mode"
+				}
+				writeError(w, http.StatusServiceUnavailable, msg)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) setupRoutes() {
 	s.Router.Get("/health", s.healthHandler)
 	s.Router.Get("/ready", s.readyHandler)
+	s.Router.Get("/metrics", s.metricsPrometheusHandler)
 
 	s.Router.Route("/api", func(r chi.Router) {
 		r.Get("/openapi.json", s.openAPIHandler)
@@ -323,6 +366,31 @@ func (s *Server) setupRoutes() {
 			r.With(s.requirePermission("admin:read")).Get("/cleanup/plan", s.cleanupPlanHandler)
 			r.With(s.requirePermission("project:read")).Post("/env/drift", s.envDriftHandler)
 			r.With(s.requirePermission("test:read")).Post("/contracts/validate", s.contractValidateHandler)
+
+			// Phase 7.1–7.50 production platform APIs
+			r.With(s.requirePermission("admin:read")).Get("/platform/flags", s.featureFlagsHandler)
+			r.With(s.requirePermission("admin:write")).Post("/platform/flags", s.featureFlagsHandler)
+			r.With(s.requirePermission("admin:read")).Get("/platform/maintenance", s.maintenanceHandler)
+			r.With(s.requirePermission("admin:write")).Post("/platform/maintenance", s.maintenanceHandler)
+			r.With(s.requirePermission("schedule:read")).Get("/platform/windows", s.executionWindowsHandler)
+			r.With(s.requirePermission("schedule:write")).Post("/platform/windows", s.executionWindowsHandler)
+			r.With(s.requirePermission("run:read")).Get("/approvals", s.listApprovalsHandler)
+			r.With(s.requirePermission("run:execute")).Post("/approvals", s.createApprovalHandler)
+			r.With(s.requirePermission("run:execute")).Post("/approvals/{id}/decide", s.decideApprovalHandler)
+			r.With(s.requirePermission("run:read")).Post("/runs/compare", s.compareRunsHandler)
+			r.With(s.requirePermission("run:read")).Post("/trends/aggregate", s.trendAggregateHandler)
+			r.With(s.requirePermission("run:read")).Get("/notifications", s.notificationsHandler)
+			r.With(s.requirePermission("run:execute")).Post("/notifications", s.notificationsHandler)
+			r.With(s.requirePermission("run:read")).Get("/artifacts", s.artifactsHandler)
+			r.With(s.requirePermission("run:execute")).Post("/artifacts", s.artifactsHandler)
+			r.With(s.requirePermission("admin:read")).Post("/security/utils", s.securityUtilsHandler)
+			r.With(s.requirePermission("run:read")).Post("/chargeback", s.chargebackHandler)
+			r.With(s.requirePermission("admin:read")).Get("/retention", s.retentionHandler)
+			r.With(s.requirePermission("test:read")).Get("/workloads", s.workloadsHandler)
+			r.With(s.requirePermission("test:read")).Get("/journeys", s.journeysHandler)
+			r.With(s.requirePermission("run:read")).Post("/release-board", s.releaseBoardHandler)
+			r.With(s.requirePermission("project:read")).Get("/health-matrix", s.healthMatrixHandler)
+			r.With(s.requirePermission("project:read")).Get("/platform/phases", s.platformPhasesHandler)
 
 			r.Route("/audit", func(r chi.Router) {
 				r.With(s.requirePermission("audit:read")).Get("/", s.listAuditLogsHandler)
