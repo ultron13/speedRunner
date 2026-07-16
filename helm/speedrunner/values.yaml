@@ -79,8 +79,8 @@ podDisruptionBudget:
 
 livenessProbe:
   httpGet:
-    path: /health
-    port: health
+    path: /api/health
+    port: http
   initialDelaySeconds: 10
   periodSeconds: 30
   timeoutSeconds: 5
@@ -88,8 +88,8 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /health
-    port: health
+    path: /api/health
+    port: http
   initialDelaySeconds: 5
   periodSeconds: 10
   timeoutSeconds: 5
@@ -97,8 +97,8 @@ readinessProbe:
 
 startupProbe:
   httpGet:
-    path: /health
-    port: health
+    path: /api/health
+    port: http
   failureThreshold: 30
   periodSeconds: 10
 
