@@ -42,10 +42,16 @@ jobs:
           version: "v3.14.0"
 
       - name: Configure kubectl
-        uses: azure/k8s-set-context@v4
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ inputs.environment == 'production' && secrets.KUBE_CONFIG_PRODUCTION || secrets.KUBE_CONFIG_STAGING }}
+        run: |
+          mkdir -p $HOME/.kube
+          KUBECONFIG_VALUE="${{ inputs.environment == 'production' && secrets.KUBE_CONFIG_PRODUCTION || secrets.KUBE_CONFIG_STAGING }}"
+          if echo "$KUBECONFIG_VALUE" | base64 -d > /dev/null 2>&1; then
+            echo "$KUBECONFIG_VALUE" | base64 -d > $HOME/.kube/config
+          else
+            echo "$KUBECONFIG_VALUE" > $HOME/.kube/config
+          fi
+          chmod 600 $HOME/.kube/config
+          kubectl cluster-info
 
       - name: Create/Update namespace
         run: |
