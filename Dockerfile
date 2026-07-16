@@ -1,25 +1,31 @@
-# Stage 1: Dependencies
+# Stage 1: Dependencies (production only for runner)
 FROM node:20-alpine AS deps
 WORKDIR /app
 
 # Copy package files
 COPY frontend/package.json frontend/package-lock.json ./
 
-# Install dependencies (including ioredis for Redis state)
+# Install production dependencies only
 RUN npm ci --omit=dev
 
-# Stage 2: Build
+# Stage 2: Build (needs devDependencies for Tailwind, PostCSS, etc.)
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copy dependencies from deps stage
-COPY --from=deps /app/node_modules ./node_modules
+# Copy package files
+COPY frontend/package.json frontend/package-lock.json ./
+
+# Install ALL dependencies (including devDependencies for build)
+RUN npm ci
 
 # Copy source code
 COPY frontend/ ./
 
 # Build the application
 RUN npm run build
+
+# Compile the custom server
+RUN npx tsc server.production.ts --outDir . --esModuleInterop --moduleResolution node --target ES2020 --module commonjs
 
 # Stage 3: Production
 FROM node:20-alpine AS runner
@@ -30,10 +36,16 @@ ENV PORT=8787
 ENV WS_PORT=8788
 ENV HEALTH_PORT=9090
 
+# Copy production dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+
 # Copy built assets
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+
+# Copy compiled custom server
+COPY --from=builder /app/server.production.js ./server.js
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs
