@@ -232,11 +232,11 @@ describe("APIClient", () => {
     it("getAuditLogs fetches audit logs", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ logs: [{ id: "1" }], total: 1 }),
+        json: async () => [{ id: "1" }],
       });
 
       const result = await apiClient.getAuditLogs();
-      expect(result.logs).toHaveLength(1);
+      expect(result).toHaveLength(1);
     });
   });
 });

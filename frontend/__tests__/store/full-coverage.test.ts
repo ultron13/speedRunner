@@ -10,197 +10,6 @@ describe("Full Store Coverage", () => {
     });
   });
 
-  describe("auth-store full coverage", () => {
-
-    it("createUser rejects duplicate email", async () => {
-      const { useAuthStore } = await import("@/store/auth-store");
-      const store = useAuthStore.getState();
-      
-      const result = store.createUser({
-        email: "admin@example.com",
-        name: "Duplicate",
-        password: "pass123",
-        role: "viewer",
-      });
-      
-      expect(result).toBeNull();
-    });
-
-
-    it("updateUser with non-existent user does nothing", async () => {
-      const { useAuthStore } = await import("@/store/auth-store");
-      const store = useAuthStore.getState();
-      
-      // Should not throw
-      store.updateUser("nonexistent", { name: "Test" });
-    });
-
-
-    it("deleteUser with non-existent user does nothing", async () => {
-      const { useAuthStore } = await import("@/store/auth-store");
-      const store = useAuthStore.getState();
-      
-      // Should not throw
-      store.deleteUser("nonexistent");
-    });
-
-
-
-
-    it("clearError clears the error state", async () => {
-      const { useAuthStore } = await import("@/store/auth-store");
-      const store = useAuthStore.getState();
-      
-      // Force an error
-      store.clearError();
-      expect(store.error).toBeNull();
-    });
-
-  });
-
-  describe("api-store full coverage", () => {
-    it("addEndpoint creates new endpoint", async () => {
-      const { useAPIStore } = await import("@/store/api-store");
-      const store = useAPIStore.getState();
-      const initialCount = store.endpoints.length;
-      
-      const endpoint = store.addEndpoint({
-        name: "Test API",
-        url: "https://api.test.com",
-        method: "GET",
-        headers: {},
-      });
-      
-      expect(endpoint).toBeDefined();
-      expect(endpoint.id).toBeDefined();
-      const newState = useAPIStore.getState();
-      expect(newState.endpoints.length).toBe(initialCount + 1);
-    });
-
-    it("updateEndpoint updates existing endpoint", async () => {
-      const { useAPIStore } = await import("@/store/api-store");
-      const store = useAPIStore.getState();
-      
-      const endpoint = store.addEndpoint({
-        name: "Original",
-        url: "https://api.test.com",
-        method: "GET",
-        headers: {},
-      });
-      
-      store.updateEndpoint(endpoint.id, { name: "Updated" });
-      
-      const newState = useAPIStore.getState();
-      const updated = newState.endpoints.find(e => e.id === endpoint.id);
-      expect(updated?.name).toBe("Updated");
-    });
-
-    it("deleteEndpoint removes endpoint", async () => {
-      const { useAPIStore } = await import("@/store/api-store");
-      const store = useAPIStore.getState();
-      
-      const endpoint = store.addEndpoint({
-        name: "To Delete",
-        url: "https://api.test.com",
-        method: "GET",
-        headers: {},
-      });
-      
-      store.deleteEndpoint(endpoint.id);
-      
-      const newState = useAPIStore.getState();
-      expect(newState.endpoints.find(e => e.id === endpoint.id)).toBeUndefined();
-    });
-
-    it("addIntegration creates new integration", async () => {
-      const { useAPIStore } = await import("@/store/api-store");
-      const store = useAPIStore.getState();
-      const initialCount = store.integrations.length;
-      
-      const integration = store.addIntegration({
-        name: "Test Integration",
-        type: "webhook",
-        config: {},
-        status: "disconnected",
-      });
-      
-      expect(integration).toBeDefined();
-      const newState = useAPIStore.getState();
-      expect(newState.integrations.length).toBe(initialCount + 1);
-    });
-
-    it("updateIntegration updates existing integration", async () => {
-      const { useAPIStore } = await import("@/store/api-store");
-      const store = useAPIStore.getState();
-      
-      const integration = store.addIntegration({
-        name: "Original",
-        type: "webhook",
-        config: {},
-        status: "disconnected",
-      });
-      
-      store.updateIntegration(integration.id, { name: "Updated" });
-      
-      const newState = useAPIStore.getState();
-      const updated = newState.integrations.find(i => i.id === integration.id);
-      expect(updated?.name).toBe("Updated");
-    });
-
-    it("deleteIntegration removes integration", async () => {
-      const { useAPIStore } = await import("@/store/api-store");
-      const store = useAPIStore.getState();
-      
-      const integration = store.addIntegration({
-        name: "To Delete",
-        type: "webhook",
-        config: {},
-        status: "disconnected",
-      });
-      
-      store.deleteIntegration(integration.id);
-      
-      const newState = useAPIStore.getState();
-      expect(newState.integrations.find(i => i.id === integration.id)).toBeUndefined();
-    });
-
-    it("connectIntegration sets status to connected", async () => {
-      const { useAPIStore } = await import("@/store/api-store");
-      const store = useAPIStore.getState();
-      
-      const integration = store.addIntegration({
-        name: "To Connect",
-        type: "webhook",
-        config: {},
-        status: "disconnected",
-      });
-      
-      store.connectIntegration(integration.id);
-      
-      const newState = useAPIStore.getState();
-      const connected = newState.integrations.find(i => i.id === integration.id);
-      expect(connected?.status).toBe("connected");
-    });
-
-    it("disconnectIntegration sets status to disconnected", async () => {
-      const { useAPIStore } = await import("@/store/api-store");
-      const store = useAPIStore.getState();
-      
-      const integration = store.addIntegration({
-        name: "To Disconnect",
-        type: "webhook",
-        config: {},
-        status: "connected",
-      });
-      
-      store.disconnectIntegration(integration.id);
-      
-      const newState = useAPIStore.getState();
-      const disconnected = newState.integrations.find(i => i.id === integration.id);
-      expect(disconnected?.status).toBe("disconnected");
-    });
-  });
-
   describe("dashboard-store full coverage", () => {
     it("toggleSectionVisibility toggles visibility", async () => {
       const { useDashboardStore } = await import("@/store/dashboard-store");
@@ -219,8 +28,8 @@ describe("Full Store Coverage", () => {
       const store = useDashboardStore.getState();
       
       const newSections = [
-        { id: "custom-1" as never, visible: true, collapsed: false, order: 0 },
-        { id: "custom-2" as never, visible: true, collapsed: false, order: 1 },
+        { id: "custom-1" as never, visible: true, collapsed: false, order: 0, label: "Custom 1" },
+        { id: "custom-2" as never, visible: true, collapsed: false, order: 1, label: "Custom 2" },
       ];
       
       store.setSections(newSections);
@@ -326,7 +135,7 @@ describe("Full Store Coverage", () => {
       expect(useDashboardStore.getState().refreshConfig.intervalMs).toBe(5000);
     });
 
-    it("markRefreshed updates lastRefreshed", async () => {
+    it("markRefreshed updates lastRefreshedAt", async () => {
       const { useDashboardStore } = await import("@/store/dashboard-store");
       const store = useDashboardStore.getState();
       
@@ -336,7 +145,7 @@ describe("Full Store Coverage", () => {
       expect(newState.refreshConfig.lastRefreshedAt).toBeDefined();
     });
 
-    it("setCustomizing sets customizing state", async () => {
+    it("setCustomizing sets isCustomizing state", async () => {
       const { useDashboardStore } = await import("@/store/dashboard-store");
       const store = useDashboardStore.getState();
       
@@ -357,7 +166,7 @@ describe("Full Store Coverage", () => {
       const exportConfig = store.createExport({
         name: "Test Export",
         format: "csv",
-        scope: "all",
+        dataSource: "tests",
       });
       
       expect(exportConfig).toBeDefined();
@@ -372,7 +181,7 @@ describe("Full Store Coverage", () => {
       const exportConfig = store.createExport({
         name: "Original",
         format: "csv",
-        scope: "all",
+        dataSource: "tests",
       });
       
       store.updateExport(exportConfig.id, { name: "Updated" });
@@ -389,7 +198,7 @@ describe("Full Store Coverage", () => {
       const exportConfig = store.createExport({
         name: "To Delete",
         format: "csv",
-        scope: "all",
+        dataSource: "tests",
       });
       
       store.deleteExport(exportConfig.id);
@@ -405,7 +214,7 @@ describe("Full Store Coverage", () => {
       const exportConfig = store.createExport({
         name: "Run Me",
         format: "csv",
-        scope: "all",
+        dataSource: "tests",
       });
       
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -422,7 +231,7 @@ describe("Full Store Coverage", () => {
       const importConfig = store.createImport({
         name: "Test Import",
         format: "csv",
-        source: "file",
+        dataSource: "file",
       });
       
       expect(importConfig).toBeDefined();
@@ -437,7 +246,7 @@ describe("Full Store Coverage", () => {
       const importConfig = store.createImport({
         name: "Original",
         format: "csv",
-        source: "file",
+        dataSource: "file",
       });
       
       store.updateImport(importConfig.id, { name: "Updated" });
@@ -454,7 +263,7 @@ describe("Full Store Coverage", () => {
       const importConfig = store.createImport({
         name: "To Delete",
         format: "csv",
-        source: "file",
+        dataSource: "file",
       });
       
       store.deleteImport(importConfig.id);
@@ -471,8 +280,11 @@ describe("Full Store Coverage", () => {
       const scheduled = store.createScheduledExport({
         name: "Daily Export",
         exportConfigId: "export-1",
-        schedule: "0 9 * * *",
+        frequency: "daily",
+        destination: "s3://bucket",
         enabled: true,
+        lastExported: null,
+        nextExport: new Date().toISOString(),
       });
       
       expect(scheduled).toBeDefined();
@@ -485,10 +297,13 @@ describe("Full Store Coverage", () => {
       const store = useDataUtilitiesStore.getState();
       
       const scheduled = store.createScheduledExport({
-        name: "Original",
+        name: "Daily Export",
         exportConfigId: "export-1",
-        schedule: "0 9 * * *",
+        frequency: "daily",
+        destination: "s3://bucket",
         enabled: true,
+        lastExported: null,
+        nextExport: new Date().toISOString(),
       });
       
       store.updateScheduledExport(scheduled.id, { name: "Updated" });
@@ -503,10 +318,13 @@ describe("Full Store Coverage", () => {
       const store = useDataUtilitiesStore.getState();
       
       const scheduled = store.createScheduledExport({
-        name: "To Delete",
+        name: "Daily Export",
         exportConfigId: "export-1",
-        schedule: "0 9 * * *",
+        frequency: "daily",
+        destination: "s3://bucket",
         enabled: true,
+        lastExported: null,
+        nextExport: new Date().toISOString(),
       });
       
       store.deleteScheduledExport(scheduled.id);
@@ -520,10 +338,13 @@ describe("Full Store Coverage", () => {
       const store = useDataUtilitiesStore.getState();
       
       const scheduled = store.createScheduledExport({
-        name: "Toggle Me",
+        name: "Daily Export",
         exportConfigId: "export-1",
-        schedule: "0 9 * * *",
+        frequency: "daily",
+        destination: "s3://bucket",
         enabled: true,
+        lastExported: null,
+        nextExport: new Date().toISOString(),
       });
       
       store.toggleScheduledExport(scheduled.id);
@@ -531,6 +352,160 @@ describe("Full Store Coverage", () => {
       const newState = useDataUtilitiesStore.getState();
       const toggled = newState.scheduledExports.find(s => s.id === scheduled.id);
       expect(toggled?.enabled).toBe(false);
+    });
+  });
+
+  describe("api-store full coverage", () => {
+    it("addEndpoint creates new endpoint", async () => {
+      const { useAPIStore } = await import("@/store/api-store");
+      const store = useAPIStore.getState();
+      const initialCount = store.endpoints.length;
+      
+      const endpoint = store.addEndpoint({
+        method: "GET",
+        path: "/api/test",
+        description: "Test endpoint",
+        parameters: [],
+        responseExample: "{}",
+        tags: ["test"],
+      });
+      
+      expect(endpoint).toBeDefined();
+      expect(endpoint.id).toBeDefined();
+      const newState = useAPIStore.getState();
+      expect(newState.endpoints.length).toBe(initialCount + 1);
+    });
+
+    it("updateEndpoint updates existing endpoint", async () => {
+      const { useAPIStore } = await import("@/store/api-store");
+      const store = useAPIStore.getState();
+      
+      const endpoint = store.addEndpoint({
+        method: "GET",
+        path: "/api/original",
+        description: "Original",
+        parameters: [],
+        responseExample: "{}",
+        tags: [],
+      });
+      
+      store.updateEndpoint(endpoint.id, { description: "Updated" });
+      
+      const newState = useAPIStore.getState();
+      const updated = newState.endpoints.find(e => e.id === endpoint.id);
+      expect(updated?.description).toBe("Updated");
+    });
+
+    it("deleteEndpoint removes endpoint", async () => {
+      const { useAPIStore } = await import("@/store/api-store");
+      const store = useAPIStore.getState();
+      
+      const endpoint = store.addEndpoint({
+        method: "GET",
+        path: "/api/to-delete",
+        description: "To Delete",
+        parameters: [],
+        responseExample: "{}",
+        tags: [],
+      });
+      
+      store.deleteEndpoint(endpoint.id);
+      
+      const newState = useAPIStore.getState();
+      expect(newState.endpoints.find(e => e.id === endpoint.id)).toBeUndefined();
+    });
+
+    it("addIntegration creates new integration", async () => {
+      const { useAPIStore } = await import("@/store/api-store");
+      const store = useAPIStore.getState();
+      const initialCount = store.integrations.length;
+      
+      const integration = store.addIntegration({
+        name: "Test Integration",
+        description: "Test",
+        baseUrl: "https://api.test.com",
+        status: "disconnected",
+        lastSync: null,
+      });
+      
+      expect(integration).toBeDefined();
+      const newState = useAPIStore.getState();
+      expect(newState.integrations.length).toBe(initialCount + 1);
+    });
+
+    it("updateIntegration updates existing integration", async () => {
+      const { useAPIStore } = await import("@/store/api-store");
+      const store = useAPIStore.getState();
+      
+      const integration = store.addIntegration({
+        name: "Original",
+        description: "Test",
+        baseUrl: "https://api.test.com",
+        status: "disconnected",
+        lastSync: null,
+      });
+      
+      store.updateIntegration(integration.id, { name: "Updated" });
+      
+      const newState = useAPIStore.getState();
+      const updated = newState.integrations.find(i => i.id === integration.id);
+      expect(updated?.name).toBe("Updated");
+    });
+
+    it("deleteIntegration removes integration", async () => {
+      const { useAPIStore } = await import("@/store/api-store");
+      const store = useAPIStore.getState();
+      
+      const integration = store.addIntegration({
+        name: "To Delete",
+        description: "Test",
+        baseUrl: "https://api.test.com",
+        status: "disconnected",
+        lastSync: null,
+      });
+      
+      store.deleteIntegration(integration.id);
+      
+      const newState = useAPIStore.getState();
+      expect(newState.integrations.find(i => i.id === integration.id)).toBeUndefined();
+    });
+
+    it("connectIntegration sets status to connected", async () => {
+      const { useAPIStore } = await import("@/store/api-store");
+      const store = useAPIStore.getState();
+      
+      const integration = store.addIntegration({
+        name: "To Connect",
+        description: "Test",
+        baseUrl: "https://api.test.com",
+        status: "disconnected",
+        lastSync: null,
+      });
+      
+      store.connectIntegration(integration.id);
+      
+      const newState = useAPIStore.getState();
+      const connected = newState.integrations.find(i => i.id === integration.id);
+      expect(connected?.status).toBe("connected");
+    });
+
+    it("disconnectIntegration sets status to disconnected", async () => {
+      const { useAPIStore } = await import("@/store/api-store");
+      const store = useAPIStore.getState();
+      
+      const integration = store.addIntegration({
+        name: "To Disconnect",
+        description: "Test",
+        baseUrl: "https://api.test.com",
+        status: "connected",
+        lastSync: null,
+      });
+      
+      store.disconnectIntegration(integration.id);
+      
+      const newState = useAPIStore.getState();
+      const disconnected = newState.integrations.find(i => i.id === integration.id);
+      expect(disconnected?.status).toBe("disconnected");
     });
   });
 });

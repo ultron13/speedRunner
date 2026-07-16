@@ -79,7 +79,7 @@ describe("API Client Edge Cases", () => {
       ok: true,
       json: async () => ({ logs: [], total: 0 }),
     });
-    await apiClient.getAuditLogs({ userId: "u1", resourceType: "test", limit: 20, offset: 0 });
+    await apiClient.getAuditLogs({ userId: "u1", resourceType: "test", limit: 20 });
     expect(mockFetch).toHaveBeenCalled();
   });
 
