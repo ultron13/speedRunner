@@ -33,6 +33,7 @@ jobs:
 
       - name: Configure kubectl
         run: |
+          mkdir -p $HOME/.kube
           # Handle both base64-encoded and plain text kubeconfig
           KUBECONFIG_VALUE="${{ secrets.KUBE_CONFIG_STAGING }}"
           if echo "$KUBECONFIG_VALUE" | base64 -d > /dev/null 2>&1; then
