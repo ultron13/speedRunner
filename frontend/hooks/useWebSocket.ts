@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { isGoBackendEnabled } from "@/lib/api-client";
 import { useTestStore } from "@/store/test-store";
 import type { ClientMessage, ServerMessage } from "@/lib/ws-types";
 
@@ -32,6 +33,13 @@ export function useWebSocket() {
   );
 
   useEffect(() => {
+    // Go control plane uses REST + metric polling — skip local WS simulation server
+    if (isGoBackendEnabled()) {
+      setConnected(true);
+      setError(null);
+      return;
+    }
+
     let unmounted = false;
 
     function connect() {

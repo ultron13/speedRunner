@@ -49,13 +49,21 @@ function mapApiTest(t: Record<string, unknown>): Test {
   };
 }
 
+function mapApiRunStatus(status: unknown): Run["status"] {
+  // Normalize API/backend statuses to terminal run states used by the UI.
+  const raw = String(status ?? "completed").toLowerCase();
+  if (raw === "failed") return "failed";
+  if (raw === "completed") return "completed";
+  // running / idle / stopped / unknown → stopped for historical run rows
+  return "stopped";
+}
+
 function mapApiRun(r: Record<string, unknown>): Run {
-  const status = normalizeStatus((r.status as string) || "completed") as Run["status"];
   return {
     id: r.id as string,
     testId: r.testId as string,
     testName: (r.testName as string) || "Unknown",
-    status: status === "running" ? "stopped" : status,
+    status: mapApiRunStatus(r.status),
     startedAt:
       typeof r.startedAt === "string"
         ? r.startedAt
@@ -69,6 +77,68 @@ function mapApiRun(r: Record<string, unknown>): Run {
     throughput: (r.throughput as number) || 0,
     avgResponseTime: (r.avgResponseTime as number) || 0,
     errorRate: (r.errorRate as number) || 0,
+  };
+}
+
+function mapApiSLA(t: Record<string, unknown>): SLAThreshold {
+  const metricRaw = String(t.metric || "avg_response_time").toLowerCase();
+  let metric: SLAThreshold["metric"] = "avgResponseTime";
+  if (metricRaw.includes("error")) metric = "errorRate";
+  else if (metricRaw.includes("throughput")) metric = "throughput";
+
+  const condRaw = String(t.condition || "lte").toLowerCase();
+  const condition: SLAThreshold["condition"] =
+    condRaw.includes("gt") || condRaw.includes("greater") ? "greaterThan" : "lessThan";
+
+  return {
+    id: t.id as string,
+    name: (t.name as string) || "SLA",
+    metric,
+    condition,
+    value: (t.value as number) || 0,
+    enabled: t.enabled !== false,
+  };
+}
+
+function mapApiTemplate(t: Record<string, unknown>): TestTemplate {
+  return {
+    id: t.id as string,
+    name: (t.name as string) || "",
+    description: (t.description as string) || "",
+    scriptType: (t.scriptType as Test["scriptType"]) || "HTTP",
+    targetUrl: (t.targetUrl as string) || "",
+    virtualUsers: (t.virtualUsers as number) || 10,
+    usageCount: (t.usageCount as number) || 0,
+    createdAt:
+      typeof t.createdAt === "string"
+        ? t.createdAt
+        : new Date((t.createdAt as string) || Date.now()).toISOString(),
+  };
+}
+
+function mapApiSchedule(s: Record<string, unknown>): TestSchedule {
+  const freq = String(s.frequency || "DAILY").toLowerCase() as TestSchedule["frequency"];
+  return {
+    id: s.id as string,
+    testId: s.testId as string,
+    testName: (s.testName as string) || (s.name as string) || "Scheduled test",
+    frequency: freq,
+    nextRunAt: s.nextRunAt
+      ? typeof s.nextRunAt === "string"
+        ? s.nextRunAt
+        : new Date(s.nextRunAt as string).toISOString()
+      : new Date().toISOString(),
+    lastRunAt: s.lastRunAt
+      ? typeof s.lastRunAt === "string"
+        ? s.lastRunAt
+        : new Date(s.lastRunAt as string).toISOString()
+      : null,
+    enabled: s.enabled !== false,
+    createdAt:
+      typeof s.createdAt === "string"
+        ? s.createdAt
+        : new Date((s.createdAt as string) || Date.now()).toISOString(),
+    createdBy: "api",
   };
 }
 
@@ -90,6 +160,12 @@ export interface TestStore {
   timeline: TimelineEvent[];
   sendMessage: (msg: unknown) => void;
   hydrate: () => void;
+  /** Force re-fetch from Go API (e.g. after login). */
+  rehydrateFromApi: () => Promise<void>;
+  applyApiRefresh: (
+    testsRes: { tests?: Array<Record<string, unknown>> },
+    runsRes: { runs?: Array<Record<string, unknown>> },
+  ) => void;
   applySnapshot: (state: ServerState) => void;
   applyTickUpdate: (update: TickUpdate) => void;
   setConnected: (connected: boolean) => void;
@@ -98,6 +174,8 @@ export interface TestStore {
   dispatchStartTest: (testId: string) => void;
   dispatchStopTest: (testId: string) => void;
   dispatchDeleteTest: (testId: string) => void;
+  apiMode: boolean;
+  engineInfo: { mode: string; engines: string[]; k8s: boolean } | null;
   createTest: (data: CreateTestInput) => void;
   startTest: (testId: string) => void;
   stopTest: (testId: string) => void;
@@ -164,6 +242,8 @@ const defaultSLAThresholds: SLAThreshold[] = [
 export const useTestStore = create<TestStore>((set, get) => ({
   hydrated: false,
   connected: false,
+  apiMode: isGoBackendEnabled(),
+  engineInfo: null,
   tests: [],
   runs: [],
   liveMetrics: new Map(),
@@ -179,51 +259,78 @@ export const useTestStore = create<TestStore>((set, get) => ({
   timeline: [],
   sendMessage: () => {},
 
+  applyApiRefresh: (testsRes, runsRes) => {
+    const tests = (testsRes.tests || []).map(mapApiTest);
+    const runs = (runsRes.runs || []).map(mapApiRun);
+    const liveMetrics = new Map(get().liveMetrics);
+    // Drop metrics for tests no longer running
+    for (const t of tests) {
+      if (t.status !== "running") liveMetrics.delete(t.id);
+    }
+    set({ tests, runs, liveMetrics });
+  },
+
+  rehydrateFromApi: async () => {
+    if (!isGoBackendEnabled()) return;
+    try {
+      const [testsRes, runsRes, slaRes, tmplRes, schedRes, execStatus] = await Promise.all([
+        apiClient.getTests({ limit: 100 }),
+        apiClient.getRuns({ limit: 100 }),
+        apiClient.getSLAThresholds().catch(() => []),
+        apiClient.getTemplates().catch(() => []),
+        apiClient.getSchedules().catch(() => []),
+        apiClient.getExecutionStatus().catch(() => null),
+      ]);
+      const tests = (testsRes.tests || []).map(mapApiTest);
+      const runs = (runsRes.runs || []).map(mapApiRun);
+      const liveMetrics = new Map<string, LiveMetrics>();
+      tests
+        .filter((t) => t.status === "running")
+        .forEach((t) => {
+          liveMetrics.set(t.id, createInitialMetrics(t.id, t.virtualUsers));
+        });
+      const slaList = Array.isArray(slaRes) ? slaRes.map(mapApiSLA) : [];
+      const templates = Array.isArray(tmplRes) ? tmplRes.map(mapApiTemplate) : [];
+      const schedules = Array.isArray(schedRes) ? schedRes.map(mapApiSchedule) : [];
+      const now = new Date().toISOString();
+      set({
+        tests,
+        runs,
+        liveMetrics,
+        trendData: get().trendData,
+        slaThresholds: slaList.length > 0 ? slaList : get().slaThresholds,
+        templates,
+        schedules,
+        infrastructure: [
+          { component: "Controller", status: "healthy", lastChecked: now },
+          {
+            component: "Load Generator",
+            status: execStatus?.k8s ? "healthy" : "degraded",
+            lastChecked: now,
+          },
+          { component: "Database", status: "healthy", lastChecked: now },
+        ],
+        engineInfo: execStatus
+          ? { mode: execStatus.mode, engines: execStatus.engines, k8s: execStatus.k8s }
+          : get().engineInfo,
+        hydrated: true,
+        connected: true,
+        apiMode: true,
+      });
+    } catch (err) {
+      console.error("rehydrateFromApi failed:", err);
+      throw err;
+    }
+  },
+
   hydrate: () => {
     if (get().hydrated) return;
 
     // Go control plane: load durable state from API
     if (isGoBackendEnabled()) {
-      void (async () => {
-        try {
-          const [testsRes, runsRes] = await Promise.all([
-            apiClient.getTests({ limit: 100 }),
-            apiClient.getRuns({ limit: 100 }),
-          ]);
-          const tests = (testsRes.tests || []).map(mapApiTest);
-          const runs = (runsRes.runs || []).map(mapApiRun);
-          const liveMetrics = new Map<string, LiveMetrics>();
-          tests
-            .filter((t) => t.status === "running")
-            .forEach((t) => {
-              liveMetrics.set(t.id, createInitialMetrics(t.id, t.virtualUsers));
-            });
-          set({
-            tests,
-            runs,
-            liveMetrics,
-            trendData: [],
-            infrastructure: [
-              {
-                component: "Controller",
-                status: "healthy",
-                lastChecked: new Date().toISOString(),
-              },
-              {
-                component: "Load Generator",
-                status: "healthy",
-                lastChecked: new Date().toISOString(),
-              },
-              {
-                component: "Database",
-                status: "healthy",
-                lastChecked: new Date().toISOString(),
-              },
-            ],
-            hydrated: true,
-            connected: true,
-          });
-        } catch (err) {
+      void get()
+        .rehydrateFromApi()
+        .catch((err) => {
           console.error("Failed to hydrate from API, falling back to mock:", err);
           const seed = createMockData();
           const liveMetrics = new Map<string, LiveMetrics>();
@@ -232,9 +339,8 @@ export const useTestStore = create<TestStore>((set, get) => ({
             .forEach((test) => {
               liveMetrics.set(test.id, createInitialMetrics(test.id, test.virtualUsers));
             });
-          set({ ...seed, liveMetrics, hydrated: true });
-        }
-      })();
+          set({ ...seed, liveMetrics, hydrated: true, apiMode: false, connected: false });
+        });
       return;
     }
 
@@ -246,7 +352,7 @@ export const useTestStore = create<TestStore>((set, get) => ({
         liveMetrics.set(test.id, createInitialMetrics(test.id, test.virtualUsers));
       });
 
-    set({ ...seed, liveMetrics, hydrated: true });
+    set({ ...seed, liveMetrics, hydrated: true, apiMode: false });
   },
 
   applySnapshot: (serverState) => {
@@ -524,6 +630,33 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   addSLAThreshold: (threshold) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          const metricMap: Record<string, string> = {
+            avgResponseTime: "avg_response_time",
+            errorRate: "error_rate",
+            throughput: "throughput",
+          };
+          const condMap: Record<string, string> = {
+            lessThan: "lte",
+            greaterThan: "gte",
+          };
+          const created = await apiClient.createSLAThreshold({
+            name: threshold.name,
+            metric: metricMap[threshold.metric] || threshold.metric,
+            condition: condMap[threshold.condition] || "lte",
+            value: threshold.value,
+          });
+          set((state) => ({
+            slaThresholds: [...state.slaThresholds, mapApiSLA(created)],
+          }));
+        } catch (err) {
+          console.error("createSLA API failed:", err);
+        }
+      })();
+      return;
+    }
     set((state) => ({
       slaThresholds: [
         ...state.slaThresholds,
@@ -541,6 +674,19 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   removeSLAThreshold: (id) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          await apiClient.deleteSLAThreshold(id);
+          set((state) => ({
+            slaThresholds: state.slaThresholds.filter((t) => t.id !== id),
+          }));
+        } catch (err) {
+          console.error("deleteSLA API failed:", err);
+        }
+      })();
+      return;
+    }
     set((state) => ({
       slaThresholds: state.slaThresholds.filter((t) => t.id !== id),
     }));
@@ -615,6 +761,25 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   saveTemplate: (template) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          const created = await apiClient.createTemplate({
+            name: template.name,
+            description: template.description,
+            scriptType: template.scriptType,
+            targetUrl: template.targetUrl,
+            virtualUsers: template.virtualUsers,
+          });
+          set((state) => ({
+            templates: [...state.templates, mapApiTemplate(created)],
+          }));
+        } catch (err) {
+          console.error("createTemplate API failed:", err);
+        }
+      })();
+      return;
+    }
     set((state) => ({
       templates: [
         ...state.templates,
@@ -629,12 +794,41 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   deleteTemplate: (id) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          await apiClient.deleteTemplate(id);
+          set((state) => ({
+            templates: state.templates.filter((t) => t.id !== id),
+          }));
+        } catch (err) {
+          console.error("deleteTemplate API failed:", err);
+        }
+      })();
+      return;
+    }
     set((state) => ({
       templates: state.templates.filter((t) => t.id !== id),
     }));
   },
 
   createTestFromTemplate: (templateId) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          const test = await apiClient.applyTemplate(templateId);
+          set((state) => ({
+            tests: [...state.tests, mapApiTest(test)],
+            templates: state.templates.map((t) =>
+              t.id === templateId ? { ...t, usageCount: t.usageCount + 1 } : t,
+            ),
+          }));
+        } catch (err) {
+          console.error("applyTemplate API failed:", err);
+        }
+      })();
+      return;
+    }
     const { templates, createTest } = get();
     const template = templates.find((t) => t.id === templateId);
     if (!template) return;
@@ -647,7 +841,6 @@ export const useTestStore = create<TestStore>((set, get) => ({
       virtualUsers: template.virtualUsers,
     });
 
-    // Increment usage count
     set((state) => ({
       templates: state.templates.map((t) =>
         t.id === templateId ? { ...t, usageCount: t.usageCount + 1 } : t,
@@ -745,6 +938,23 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   createSchedule: (schedule) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          const created = await apiClient.createSchedule({
+            testId: schedule.testId,
+            name: schedule.testName || "Schedule",
+            frequency: (schedule.frequency || "daily").toUpperCase(),
+          });
+          set((state) => ({
+            schedules: [...state.schedules, mapApiSchedule(created)],
+          }));
+        } catch (err) {
+          console.error("createSchedule API failed:", err);
+        }
+      })();
+      return;
+    }
     set((state) => ({
       schedules: [
         ...state.schedules,
@@ -754,6 +964,25 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   updateSchedule: (id, updates) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          const body: Record<string, unknown> = {};
+          if (updates.enabled !== undefined) body.enabled = updates.enabled;
+          if (updates.frequency) body.frequency = String(updates.frequency).toUpperCase();
+          if (updates.testName) body.name = updates.testName;
+          const updated = await apiClient.updateSchedule(id, body);
+          set((state) => ({
+            schedules: state.schedules.map((s) =>
+              s.id === id ? mapApiSchedule(updated) : s,
+            ),
+          }));
+        } catch (err) {
+          console.error("updateSchedule API failed:", err);
+        }
+      })();
+      return;
+    }
     set((state) => ({
       schedules: state.schedules.map((s) =>
         s.id === id ? { ...s, ...updates } : s,
@@ -762,6 +991,19 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   deleteSchedule: (id) => {
+    if (isGoBackendEnabled()) {
+      void (async () => {
+        try {
+          await apiClient.deleteSchedule(id);
+          set((state) => ({
+            schedules: state.schedules.filter((s) => s.id !== id),
+          }));
+        } catch (err) {
+          console.error("deleteSchedule API failed:", err);
+        }
+      })();
+      return;
+    }
     set((state) => ({
       schedules: state.schedules.filter((s) => s.id !== id),
     }));
@@ -782,18 +1024,36 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   bulkStartTests: (testIds) => {
-    const { startTest } = get();
-    testIds.forEach((id) => startTest(id));
+    const { dispatchStartTest, startTest } = get();
+    testIds.forEach((id) => {
+      if (isGoBackendEnabled()) {
+        dispatchStartTest(id);
+      } else {
+        startTest(id);
+      }
+    });
   },
 
   bulkStopTests: (testIds) => {
-    const { stopTest } = get();
-    testIds.forEach((id) => stopTest(id));
+    const { dispatchStopTest, stopTest } = get();
+    testIds.forEach((id) => {
+      if (isGoBackendEnabled()) {
+        dispatchStopTest(id);
+      } else {
+        stopTest(id);
+      }
+    });
   },
 
   bulkDeleteTests: (testIds) => {
-    const { deleteTest } = get();
-    testIds.forEach((id) => deleteTest(id));
+    const { dispatchDeleteTest, deleteTest } = get();
+    testIds.forEach((id) => {
+      if (isGoBackendEnabled()) {
+        dispatchDeleteTest(id);
+      } else {
+        deleteTest(id);
+      }
+    });
     set({ selectedTestIds: [] });
   },
 

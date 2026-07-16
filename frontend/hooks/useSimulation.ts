@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 
+import { isGoBackendEnabled } from "@/lib/api-client";
 import { selectRunningTests, useTestStore } from "@/store/test-store";
 
 export function useSimulation() {
@@ -9,8 +10,10 @@ export function useSimulation() {
   const connected = useTestStore((state) => state.connected);
 
   useEffect(() => {
-    // Skip client-side simulation when connected to WebSocket server
-    if (connected || runningTests === 0) return;
+    // Skip client-side simulation when:
+    // - connected to WebSocket server (custom server.ts)
+    // - using Go control plane (useApiMetrics polls instead)
+    if (connected || isGoBackendEnabled() || runningTests === 0) return;
 
     const id = window.setInterval(() => useTestStore.getState().tick(), 1_000);
     return () => window.clearInterval(id);

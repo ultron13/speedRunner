@@ -111,6 +111,15 @@ func OpenAPIDoc() map[string]interface{} {
 					"tags":     []string{"Meta"},
 				},
 			},
+			"/runs/live": map[string]interface{}{
+				"get": map[string]interface{}{"summary": "Live metrics for active runs", "tags": []string{"Runs"}},
+			},
+			"/execution/status": map[string]interface{}{
+				"get": map[string]interface{}{"summary": "Engine mode and K8s readiness", "tags": []string{"Execution"}},
+			},
+			"/execution/jobs": map[string]interface{}{
+				"get": map[string]interface{}{"summary": "List Kubernetes execution jobs", "tags": []string{"Execution"}},
+			},
 		},
 	}
 }

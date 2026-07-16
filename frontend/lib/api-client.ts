@@ -161,6 +161,159 @@ class APIClient {
     return this.request<Array<Record<string, unknown>>>(`/runs/${id}/metrics${query}`);
   }
 
+  async getLiveRunMetric(id: string) {
+    return this.request<{
+      runId: string;
+      testId?: string;
+      engine?: string;
+      duration: number;
+      throughput: number;
+      avgResponseTime: number;
+      errorRate: number;
+      activeVUsers?: number;
+      p50?: number;
+      p90?: number;
+      p95?: number;
+      p99?: number;
+      source?: string;
+    }>(`/runs/${id}/live`);
+  }
+
+  async getLiveMetrics() {
+    return this.request<{
+      metrics: Array<{
+        runId: string;
+        testId: string;
+        engine?: string;
+        duration: number;
+        throughput: number;
+        avgResponseTime: number;
+        errorRate: number;
+        activeVUsers?: number;
+      }>;
+      active: number;
+    }>("/runs/live");
+  }
+
+  async getExecutionStatus() {
+    return this.request<{
+      mode: string;
+      engines: string[];
+      k8s: boolean;
+      active: number;
+    }>("/execution/status");
+  }
+
+  async getExecutionJobs() {
+    return this.request<{
+      jobs: Array<Record<string, unknown>>;
+      k8s: boolean;
+      namespace?: string;
+      total: number;
+      message?: string;
+    }>("/execution/jobs");
+  }
+
+  // Dashboard aggregates
+  async getDashboardSummary() {
+    return this.request<{
+      totalTests: number;
+      runningTests: number;
+      completedRuns: number;
+      failedRuns: number;
+      avgResponseTime: number;
+      avgThroughput: number;
+      avgErrorRate: number;
+      poolCapacity: number;
+      poolUsed: number;
+      openSlaBreaches: number;
+      scheduledJobs: number;
+    }>("/dashboard/summary");
+  }
+
+  // Environments
+  async getEnvironments(projectId?: string) {
+    const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+    return this.request<Array<Record<string, unknown>>>(`/environments${q}`);
+  }
+
+  async createEnvironment(data: {
+    name: string;
+    baseUrl: string;
+    region?: string;
+    projectId?: string;
+  }) {
+    return this.request<Record<string, unknown>>("/environments", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async deleteEnvironment(id: string) {
+    return this.request<{ success: boolean }>(`/environments/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  // Load generator pools
+  async getPools() {
+    return this.request<Array<Record<string, unknown>>>("/pools");
+  }
+
+  async createPool(data: {
+    name: string;
+    region?: string;
+    engine?: string;
+    capacityVUs?: number;
+    namespace?: string;
+  }) {
+    return this.request<Record<string, unknown>>("/pools", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  // Applications
+  async getApplications(projectId?: string) {
+    const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+    return this.request<Array<Record<string, unknown>>>(`/applications${q}`);
+  }
+
+  async createApplication(data: {
+    name: string;
+    description?: string;
+    owner?: string;
+    projectId?: string;
+  }) {
+    return this.request<Record<string, unknown>>("/applications", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  // Reports
+  async getReports() {
+    return this.request<Array<Record<string, unknown>>>("/reports");
+  }
+
+  async createReport(data: {
+    name: string;
+    runId?: string;
+    projectId?: string;
+    reportType?: string;
+    summary?: string;
+    payload?: Record<string, unknown>;
+  }) {
+    return this.request<Record<string, unknown>>("/reports", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async getReport(id: string) {
+    return this.request<Record<string, unknown>>(`/reports/${id}`);
+  }
+
   // Auth
   async login(email: string, password: string) {
     return this.request<{ token: string; user: Record<string, unknown> }>("/auth/login", {

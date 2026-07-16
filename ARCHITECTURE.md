@@ -1,6 +1,6 @@
 # SpeedRunner Architecture Decisions
 
-**Status:** Active (Phase 1 complete → Phase 2–3 in progress)  
+**Status:** Active (Phase 1–2 complete; Phase 3 parity continuing)  
 **Last updated:** 2026-07-16
 
 ## Product identity
@@ -60,6 +60,13 @@ Browser
 | Regions | `GET /api/regions` | Done (registry) |
 | OpenAPI | `GET /api/openapi.json` | Done |
 | Audit | `GET /api/audit` | Done |
+| Live metrics | `GET /api/runs/live`, `/runs/{id}/live` | Done |
+| Execution | `GET /api/execution/status`, `/execution/jobs` | Done |
+| Dashboard | `GET /api/dashboard/summary` | Done |
+| Environments | CRUD `/api/environments` | Done |
+| LG pools | List/create + reserve `/api/pools` | Done |
+| Applications | List/create `/api/applications` | Done |
+| Reports | List/create/get `/api/reports` | Done |
 
 ## Backend packages
 
@@ -99,10 +106,38 @@ API responses use **camelCase** (`projectId`, `virtualUsers`, `avgResponseTime`)
 Auth: `Authorization: Bearer <jwt>`  
 Roles: `PLATFORM_ADMIN`, `PERFORMANCE_LEAD`, `PERFORMANCE_ENGINEER`, `DEVELOPER`, `QA`, `RELEASE_MANAGER`, `READ_ONLY`, `SERVICE_ACCOUNT`
 
+## Engine modes (`ENGINE_MODE`)
+
+| Mode | Behavior |
+| --- | --- |
+| `simulate` | In-process metric simulation (default, no cluster needed) |
+| `http` | Real HTTP load from the backend process (capped VUs) |
+| `jmeter` | Kubernetes Job + ConfigMap test plan |
+| `k6` | Kubernetes Job + generated k6 script |
+| `auto` | Pick engine from test `scriptType` (JMeter→jmeter, k6→k6, HTTP→http) |
+
+K8s engines require kubeconfig or in-cluster config. Without K8s, auto falls back to simulate.
+
+Live metrics: always available via simulate companion ticks while K8s jobs run.  
+Poll: `GET /api/runs/live` and `GET /api/runs/{id}/live`.
+
+## Frontend ↔ Go integration
+
+Set `NEXT_PUBLIC_API_URL=http://localhost:8080` on the Next.js app.
+
+| Concern | Behavior |
+| --- | --- |
+| Auth | Login/JWT against Go; token in localStorage |
+| Hydrate | tests, runs, SLA, templates, schedules from API |
+| Actions | create/start/stop/delete tests via REST |
+| Live charts | `useApiMetrics` polls `/api/runs/live` every 1s |
+| WS | Disabled when Go API is configured |
+| Banner | Shows engine mode + K8s readiness |
+
 ## Phase roadmap
 
 1. **Foundation (persist + auth)** — **complete**
-2. **Real execution** — HTTP engine done; JMeter/k6 K8s jobs next
+2. **Real execution** — **simulate + HTTP + JMeter/k6 K8s jobs wired**; result artifact collection next
 3. **LoadRunner parity** — schedules/SLA/templates done; pools & reporting next
 4. **UX routes** — multi-page portal
 5. **K8s depth** — operator, KEDA

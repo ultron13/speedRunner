@@ -39,9 +39,10 @@ type K8sConfig struct {
 }
 
 type EngineConfig struct {
-	// Mode: simulate | http | jmeter | k6
+	// Mode: simulate | http | jmeter | k6 | auto
 	Mode        string
 	JMeterImage string
+	K6Image     string
 	DefaultVUs  int
 	MaxVUs      int
 }
@@ -70,6 +71,7 @@ func Load() *Config {
 		Engine: EngineConfig{
 			Mode:        getEnv("ENGINE_MODE", "simulate"),
 			JMeterImage: getEnv("JMETER_IMAGE", "apache/jmeter:5.6.3"),
+			K6Image:     getEnv("K6_IMAGE", "grafana/k6:latest"),
 			DefaultVUs:  getEnvInt("DEFAULT_VUS", 10),
 			MaxVUs:      getEnvInt("MAX_VUS", 1000),
 		},

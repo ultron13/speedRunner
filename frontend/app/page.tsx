@@ -1,19 +1,17 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 
 // Critical path — eagerly imported (above the fold)
-import { LoginForm } from "@/components/auth/LoginForm";
-import { Header } from "@/components/dashboard/Header";
+import { AuthGate } from "@/components/layout/AuthGate";
+import { AppShell } from "@/components/layout/AppShell";
+import { InfrastructureHealth } from "@/components/dashboard/InfrastructureHealth";
 import { SummaryCards } from "@/components/dashboard/SummaryCards";
 import { ActiveTestsTable } from "@/components/tests/ActiveTestsTable";
 import { RecentRunsTable } from "@/components/tests/RecentRunsTable";
 import { BulkActions } from "@/components/tests/BulkActions";
 import { DashboardCustomizer } from "@/components/dashboard/DashboardCustomizer";
 import { CreateTestModal } from "@/components/tests/CreateTestModal";
-import { ToastContainer } from "@/components/ui/toast";
-import { MobileNav } from "@/components/mobile/MobileNav";
-import { OfflineIndicator } from "@/components/mobile/OfflineIndicator";
 import { TrendCharts } from "@/components/charts/TrendCharts";
 
 // Lazy-loaded sections
@@ -96,7 +94,6 @@ import {
   LazyDeploymentHistory,
 } from "@/components/dashboard/lazy-sections";
 import {
-  LazyInfrastructureHealth,
   LazyGlobalSearch,
   LazyOnlineUsers,
   LazyRealTimeNotifications,
@@ -108,12 +105,10 @@ import {
 } from "@/components/dashboard/lazy-sections";
 
 // Hooks & stores
+import { useApiMetrics } from "@/hooks/useApiMetrics";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useSimulation } from "@/hooks/useSimulation";
-import { useTheme } from "@/hooks/useTheme";
-import { useToast } from "@/hooks/useToast";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { useAuthStore } from "@/store/auth-store";
 import { useDashboardStore, selectSectionVisible } from "@/store/dashboard-store";
 import { useTestStore } from "@/store/test-store";
 
@@ -147,16 +142,12 @@ function DashboardSection({ sectionId, children }: { sectionId: string; children
 export default function DashboardPage() {
   const hydrated = useTestStore((state) => state.hydrated);
   const connected = useTestStore((state) => state.connected);
-  const hydrate = useTestStore((state) => state.hydrate);
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const initializeAuth = useAuthStore((state) => state.initialize);
+  const apiMode = useTestStore((state) => state.apiMode);
+  const engineInfo = useTestStore((state) => state.engineInfo);
 
   const { error: wsError } = useWebSocket();
   useSimulation();
-  useTheme();
-  const { toasts, removeToast } = useToast();
-
-  useEffect(() => { initializeAuth(); }, [initializeAuth]);
+  useApiMetrics(1000);
 
   const shortcuts = useMemo(
     () => ({
@@ -177,28 +168,27 @@ export default function DashboardPage() {
   );
   useKeyboardShortcuts(shortcuts);
 
-  useEffect(() => { hydrate(); }, [hydrate]);
-
-  if (!isAuthenticated) {
-    return <LoginForm />;
-  }
-
   return (
-    <div className="min-h-screen bg-[var(--background)]">
-      <Header />
-      {!connected && hydrated && wsError && (
-        <div className="mx-auto max-w-[1440px] px-4 pt-4 sm:px-6 lg:px-8">
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-            {wsError}
-          </div>
+    <AuthGate>
+    <AppShell
+      subtitle="Operations overview"
+      title="Performance dashboard"
+    >
+      <p className="-mt-4 text-sm text-slate-600 dark:text-slate-400">
+        Monitor active load tests, response trends, and test infrastructure.
+      </p>
+      {apiMode && engineInfo && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100">
+          Connected to Go control plane · engine mode <strong>{engineInfo.mode}</strong>
+          {engineInfo.engines?.length ? ` · engines: ${engineInfo.engines.join(", ")}` : ""}
+          {engineInfo.k8s ? " · Kubernetes ready" : " · Kubernetes offline (simulate/http only)"}
         </div>
       )}
-      <main className="mx-auto max-w-[1440px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <div>
-          <p className="text-sm font-medium text-sky-700 dark:text-sky-400">Operations overview</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight dark:text-white sm:text-3xl">Performance dashboard</h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Monitor active load tests, response trends, and test infrastructure.</p>
+      {!connected && hydrated && wsError && !apiMode && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          {wsError}
         </div>
+      )}
         {!hydrated ? (
           <DashboardSkeleton />
         ) : (
@@ -208,6 +198,8 @@ export default function DashboardPage() {
             <DashboardSection sectionId="charts"><TrendCharts /></DashboardSection>
             <DashboardSection sectionId="activeTests"><ActiveTestsTable /></DashboardSection>
             <DashboardSection sectionId="recentRuns"><RecentRunsTable /></DashboardSection>
+            {/* Eager: covered by E2E and part of the core operations view */}
+            <DashboardSection sectionId="infrastructure"><InfrastructureHealth /></DashboardSection>
 
             {/* Below the fold: lazy loaded */}
             <DashboardSection sectionId="comparison"><LazySection><LazyRunComparison /></LazySection></DashboardSection>
@@ -224,7 +216,6 @@ export default function DashboardPage() {
               <DashboardSection sectionId="profile"><LazySection><LazyUserProfile /></LazySection></DashboardSection>
               <DashboardSection sectionId="users"><LazySection><LazyUserManagement /></LazySection></DashboardSection>
             </div>
-            <DashboardSection sectionId="infrastructure"><LazySection><LazyInfrastructureHealth /></LazySection></DashboardSection>
             <LazySection><LazyReportGenerator /></LazySection>
             <div className="grid gap-6 xl:grid-cols-2">
               <LazySection><LazyAPIKeys /></LazySection>
@@ -321,18 +312,15 @@ export default function DashboardPage() {
           </>
         )}
         <BulkActions />
-      </main>
       <DashboardCustomizer />
       <CreateTestModal />
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
-      <MobileNav activeSection="dashboard" onNavigate={(section) => console.log("Navigate to:", section)} />
-      <OfflineIndicator />
       <div className="fixed bottom-4 left-4 hidden text-xs text-slate-400 dark:text-slate-500 lg:block">
         <kbd className="rounded border px-1.5 py-0.5 dark:border-slate-600">Ctrl+K</kbd> Search
         <span className="mx-2">|</span>
         <kbd className="rounded border px-1.5 py-0.5 dark:border-slate-600">Ctrl+N</kbd> New Test
       </div>
-    </div>
+    </AppShell>
+    </AuthGate>
   );
 }
 

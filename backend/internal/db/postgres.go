@@ -166,6 +166,48 @@ func (pg *Postgres) RunMigrations(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_logs(resource_type, resource_id)`,
+		// ── Enterprise catalog (LoadRunner-class parity) ───────────────────
+		`CREATE TABLE IF NOT EXISTS environments (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			base_url TEXT NOT NULL,
+			region TEXT NOT NULL DEFAULT 'local',
+			status TEXT NOT NULL DEFAULT 'ACTIVE',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS load_generator_pools (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			region TEXT NOT NULL DEFAULT 'local',
+			engine TEXT NOT NULL DEFAULT 'simulate',
+			capacity_vus INT NOT NULL DEFAULT 1000,
+			used_vus INT NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'HEALTHY',
+			namespace TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS applications (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			description TEXT,
+			owner TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS reports (
+			id TEXT PRIMARY KEY,
+			run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+			project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+			name TEXT NOT NULL,
+			report_type TEXT NOT NULL DEFAULT 'ENGINEERING',
+			summary TEXT,
+			payload JSONB,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_env_project ON environments(project_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_apps_project ON applications(project_id)`,
 	}
 
 	for _, m := range migrations {

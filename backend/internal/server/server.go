@@ -20,6 +20,7 @@ import (
 	"github.com/belo/speedrunner/backend/internal/db"
 	"github.com/belo/speedrunner/backend/internal/db/queries"
 	"github.com/belo/speedrunner/backend/internal/integrations"
+	k8sclient "github.com/belo/speedrunner/backend/internal/k8s"
 	redisclient "github.com/belo/speedrunner/backend/internal/redis"
 	"github.com/belo/speedrunner/backend/internal/region"
 )
@@ -29,6 +30,7 @@ type Server struct {
 	Config    *config.Config
 	DB        *db.Postgres
 	Redis     *redisclient.RedisClient
+	K8s       *k8sclient.Client
 	Users     *queries.UserQueries
 	Projects  *queries.ProjectQueries
 	Tests     *queries.TestQueries
@@ -36,20 +38,25 @@ type Server struct {
 	Audit     *queries.AuditQueries
 	Schedules *queries.ScheduleQueries
 	SLA       *queries.SLAQueries
-	Templates *queries.TemplateQueries
-	APIKeys   *queries.APIKeyQueries
-	Runner    *RunnerOrchestrator
-	Webhooks  *integrations.Dispatcher
-	Cost      *cost.Estimator
-	AI        *ai.Detector
-	Regions   *region.Registry
-	httpSrv   *http.Server
+	Templates    *queries.TemplateQueries
+	APIKeys      *queries.APIKeyQueries
+	Environments *queries.EnvironmentQueries
+	Pools        *queries.PoolQueries
+	Applications *queries.ApplicationQueries
+	Reports      *queries.ReportQueries
+	Runner       *RunnerOrchestrator
+	Webhooks     *integrations.Dispatcher
+	Cost         *cost.Estimator
+	AI           *ai.Detector
+	Regions      *region.Registry
+	httpSrv      *http.Server
 }
 
 type Deps struct {
 	Config *config.Config
 	DB     *db.Postgres
 	Redis  *redisclient.RedisClient
+	K8s    *k8sclient.Client
 }
 
 func New(deps Deps) *Server {
@@ -58,6 +65,7 @@ func New(deps Deps) *Server {
 		Config:   deps.Config,
 		DB:       deps.DB,
 		Redis:    deps.Redis,
+		K8s:      deps.K8s,
 		Webhooks: integrations.NewDispatcher(),
 		Cost:     cost.NewDefault(),
 		AI:       ai.NewDetector(),
@@ -74,7 +82,30 @@ func New(deps Deps) *Server {
 		s.SLA = queries.NewSLAQueries(pool)
 		s.Templates = queries.NewTemplateQueries(pool)
 		s.APIKeys = queries.NewAPIKeyQueries(pool)
-		s.Runner = NewRunnerOrchestrator(s.Runs, s.Tests, s.SLA, deps.Redis, s.Webhooks)
+		s.Environments = queries.NewEnvironmentQueries(pool)
+		s.Pools = queries.NewPoolQueries(pool)
+		s.Applications = queries.NewApplicationQueries(pool)
+		s.Reports = queries.NewReportQueries(pool)
+		mode := "simulate"
+		jmImage, k6Image, ns := "", "", ""
+		if deps.Config != nil {
+			mode = deps.Config.Engine.Mode
+			jmImage = deps.Config.Engine.JMeterImage
+			k6Image = deps.Config.Engine.K6Image
+			ns = deps.Config.K8s.ExecutionNS
+		}
+		s.Runner = NewRunnerOrchestrator(RunnerConfig{
+			Mode:        mode,
+			K8s:         deps.K8s,
+			Namespace:   ns,
+			JMeterImage: jmImage,
+			K6Image:     k6Image,
+			Runs:        s.Runs,
+			Tests:       s.Tests,
+			SLA:         s.SLA,
+			Redis:       deps.Redis,
+			Webhooks:    s.Webhooks,
+		})
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -134,9 +165,38 @@ func (s *Server) setupRoutes() {
 			r.Route("/runs", func(r chi.Router) {
 				r.With(s.requirePermission("run:read")).Get("/", s.listRunsHandler)
 				r.With(s.requirePermission("run:execute")).Post("/", s.createRunHandler)
+				r.With(s.requirePermission("run:read")).Get("/live", s.listLiveMetricsHandler)
 				r.With(s.requirePermission("run:read")).Get("/{id}", s.getRunHandler)
 				r.With(s.requirePermission("run:execute")).Post("/{id}/stop", s.stopRunHandler)
 				r.With(s.requirePermission("run:read")).Get("/{id}/metrics", s.getRunMetricsHandler)
+				r.With(s.requirePermission("run:read")).Get("/{id}/live", s.getLiveMetricHandler)
+			})
+
+			r.With(s.requirePermission("run:read")).Get("/execution/status", s.executionStatusHandler)
+			r.With(s.requirePermission("run:read")).Get("/execution/jobs", s.listExecutionJobsHandler)
+
+			r.With(s.requirePermission("run:read")).Get("/dashboard/summary", s.dashboardSummaryHandler)
+
+			r.Route("/environments", func(r chi.Router) {
+				r.With(s.requirePermission("project:read")).Get("/", s.listEnvironmentsHandler)
+				r.With(s.requirePermission("project:write")).Post("/", s.createEnvironmentHandler)
+				r.With(s.requirePermission("project:write")).Delete("/{id}", s.deleteEnvironmentHandler)
+			})
+
+			r.Route("/pools", func(r chi.Router) {
+				r.With(s.requirePermission("project:read")).Get("/", s.listPoolsHandler)
+				r.With(s.requirePermission("project:write")).Post("/", s.createPoolHandler)
+			})
+
+			r.Route("/applications", func(r chi.Router) {
+				r.With(s.requirePermission("project:read")).Get("/", s.listApplicationsHandler)
+				r.With(s.requirePermission("project:write")).Post("/", s.createApplicationHandler)
+			})
+
+			r.Route("/reports", func(r chi.Router) {
+				r.With(s.requirePermission("run:read")).Get("/", s.listReportsHandler)
+				r.With(s.requirePermission("run:read")).Post("/", s.createReportHandler)
+				r.With(s.requirePermission("run:read")).Get("/{id}", s.getReportHandler)
 			})
 
 			r.Route("/schedules", func(r chi.Router) {
@@ -195,10 +255,23 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
+	engines := []string{"simulate", "http"}
+	mode := "simulate"
+	k8sOK := false
+	if s.Runner != nil {
+		engines = s.Runner.Engines()
+		mode = s.Runner.Mode()
+		k8sOK = s.Runner.HasK8s()
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "healthy",
 		"service": "speedrunner-backend",
-		"version": "0.2.0",
+		"version": "0.3.0",
+		"engine": map[string]interface{}{
+			"mode":    mode,
+			"engines": engines,
+			"k8s":     k8sOK,
+		},
 	})
 }
 

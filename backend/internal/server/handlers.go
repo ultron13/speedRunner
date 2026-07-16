@@ -544,6 +544,23 @@ func (s *Server) startTestHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "test is already running")
 		return
 	}
+	if !s.enforceStartPolicy(w, test.VirtualUsers, test.TargetURL) {
+		return
+	}
+
+	// Reserve load generator pool capacity when available
+	if s.Pools != nil {
+		if pool, err := s.Pools.PickBest(r.Context(), test.VirtualUsers, ""); err == nil && pool != nil {
+			if err := s.Pools.Reserve(r.Context(), pool.ID, test.VirtualUsers); err != nil {
+				writeError(w, http.StatusConflict, "insufficient load generator capacity: "+err.Error())
+				return
+			}
+			// Release is best-effort on stop via deferred pattern in stop handler
+			if s.Redis != nil {
+				_ = s.Redis.Set(r.Context(), "speedrunner:run:pool:"+test.ID, pool.ID, 24*time.Hour)
+			}
+		}
+	}
 
 	userID := userIDFromContext(r.Context())
 	var triggeredBy *string
@@ -572,12 +589,21 @@ func (s *Server) startTestHandler(w http.ResponseWriter, r *http.Request) {
 		_ = s.Redis.Set(r.Context(), redisStatusKey(run.ID), "RUNNING", 24*time.Hour)
 	}
 
+	engineMode := "simulate"
+	if s.Runner != nil {
+		engineMode = s.Runner.Mode()
+		if info, ok := s.Runner.RunInfo(run.ID); ok {
+			engineMode = info.engineName
+		}
+	}
+
 	s.writeAudit(r, "start", "test", id)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"run":    run,
 		"testId": id,
 		"status": "RUNNING",
-		"mode":   "simulate",
+		"mode":   engineMode,
+		"engine": engineMode,
 	})
 }
 
@@ -762,6 +788,107 @@ func (s *Server) getRunMetricsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, metrics)
+}
+
+// getLiveMetricHandler returns the latest in-memory snapshot for an active run.
+func (s *Server) getLiveMetricHandler(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if s.Runner == nil {
+		writeError(w, http.StatusServiceUnavailable, "runner not available")
+		return
+	}
+	snap, ok := s.Runner.LiveSnapshot(id)
+	if !ok {
+		// Fall back to last persisted metric
+		if s.Runs != nil {
+			metrics, err := s.Runs.GetMetrics(r.Context(), id)
+			if err == nil && len(metrics) > 0 {
+				last := metrics[len(metrics)-1]
+				writeJSON(w, http.StatusOK, map[string]interface{}{
+					"runId":           id,
+					"duration":        last.Duration,
+					"throughput":      last.Throughput,
+					"avgResponseTime": last.AvgResponseTime,
+					"errorRate":       last.ErrorRate,
+					"activeVUsers":    last.ActiveVUsers,
+					"source":          "persisted",
+				})
+				return
+			}
+		}
+		writeError(w, http.StatusNotFound, "no live metrics for run")
+		return
+	}
+	info, _ := s.Runner.RunInfo(id)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"runId":           id,
+		"testId":          info.testID,
+		"engine":          info.engineName,
+		"duration":        snap.Duration,
+		"throughput":      snap.Throughput,
+		"avgResponseTime": snap.AvgResponseTime,
+		"errorRate":       snap.ErrorRate,
+		"activeVUsers":    snap.ActiveVUsers,
+		"p50":             snap.P50,
+		"p90":             snap.P90,
+		"p95":             snap.P95,
+		"p99":             snap.P99,
+		"source":          "live",
+	})
+}
+
+// listLiveMetricsHandler returns snapshots for all active runs (dashboard poll).
+func (s *Server) listLiveMetricsHandler(w http.ResponseWriter, r *http.Request) {
+	if s.Runner == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"metrics": []interface{}{}, "active": 0})
+		return
+	}
+	ids := s.Runner.ActiveRunIDs()
+	out := make([]map[string]interface{}, 0, len(ids))
+	for _, id := range ids {
+		snap, ok := s.Runner.LiveSnapshot(id)
+		if !ok {
+			continue
+		}
+		info, _ := s.Runner.RunInfo(id)
+		out = append(out, map[string]interface{}{
+			"runId":           id,
+			"testId":          info.testID,
+			"engine":          info.engineName,
+			"duration":        snap.Duration,
+			"throughput":      snap.Throughput,
+			"avgResponseTime": snap.AvgResponseTime,
+			"errorRate":       snap.ErrorRate,
+			"activeVUsers":    snap.ActiveVUsers,
+			"p50":             snap.P50,
+			"p90":             snap.P90,
+			"p95":             snap.P95,
+			"p99":             snap.P99,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"metrics": out,
+		"active":  len(out),
+	})
+}
+
+func (s *Server) executionStatusHandler(w http.ResponseWriter, r *http.Request) {
+	engines := []string{}
+	mode := "unknown"
+	k8sOK := false
+	active := 0
+	if s.Runner != nil {
+		engines = s.Runner.Engines()
+		mode = s.Runner.Mode()
+		k8sOK = s.Runner.HasK8s()
+		active = len(s.Runner.ActiveRunIDs())
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"mode":    mode,
+		"engines": engines,
+		"k8s":     k8sOK,
+		"active":  active,
+	})
 }
 
 func (s *Server) listAuditLogsHandler(w http.ResponseWriter, r *http.Request) {

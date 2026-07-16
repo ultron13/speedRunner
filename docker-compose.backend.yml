@@ -14,11 +14,17 @@ services:
       - DATABASE_URL=postgresql://speedrunner:speedrunner_secret@postgres:5432/speedrunner
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=speedrunner-dev-secret
+      - ENGINE_MODE=auto
+      - JMETER_IMAGE=apache/jmeter:5.6.3
+      - K6_IMAGE=grafana/k6:latest
       - K8S_IN_CLUSTER=false
       - K8S_EXECUTION_NS=marathonrunner-execution
       - K8S_SYSTEM_NS=marathonrunner-system
       - NODE_ENV=development
       - LOG_LEVEL=debug
+    # Mount kubeconfig for local K8s (kind/minikube/rancher). Optional.
+    volumes:
+      - ${HOME}/.kube:/root/.kube:ro
     depends_on:
       redis:
         condition: service_healthy

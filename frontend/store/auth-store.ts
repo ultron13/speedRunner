@@ -208,28 +208,42 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
 
     // Mock auth fallback (demo without backend)
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const foundUser = mockUsers.find(
-      (u) => u.email === credentials.email && u.password === credentials.password,
-    );
+      const foundUser = mockUsers.find(
+        (u) => u.email === credentials.email && u.password === credentials.password,
+      );
 
-    if (!foundUser) {
-      set({ isLoading: false, error: "Invalid email or password" });
+      if (!foundUser) {
+        set({ isLoading: false, error: "Invalid email or password" });
+        return false;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { password: _pw, ...userWithoutPassword } = foundUser;
+      const user: User = {
+        ...userWithoutPassword,
+        lastLoginAt: new Date().toISOString(),
+      };
+      const token = generateToken({
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      });
+
+      apiClient.setToken(token);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(TOKEN_KEY, token);
+      }
+      saveAuth(user, token);
+      set({ user, isAuthenticated: true, isLoading: false, error: null });
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Login failed";
+      set({ isLoading: false, error: message });
       return false;
     }
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password: _pw, ...userWithoutPassword } = foundUser;
-    const user: User = {
-      ...userWithoutPassword,
-      lastLoginAt: new Date().toISOString(),
-    };
-    const token = generateToken({ userId: user.id, email: user.email, role: user.role });
-
-    saveAuth(user, token);
-    set({ user, isAuthenticated: true, isLoading: false });
-    return true;
   },
 
   logout: () => {

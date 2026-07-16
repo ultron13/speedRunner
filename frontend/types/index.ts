@@ -1,5 +1,6 @@
 export type TestStatus = "idle" | "running" | "completed" | "stopped" | "failed";
-export type ScriptType = "HTTP" | "TruClient" | "JMeter";
+export type ScriptType = "HTTP" | "TruClient" | "JMeter" | "k6";
+/** Terminal states for historical runs (active runs live on Test.status). */
 export type RunStatus = "completed" | "stopped" | "failed";
 export type InfrastructureState = "healthy" | "degraded" | "down";
 

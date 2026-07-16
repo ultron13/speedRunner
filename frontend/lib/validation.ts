@@ -3,7 +3,7 @@ import { z } from "zod";
 export const createTestSchema = z.object({
   name: z.string().trim().min(3, "Enter at least 3 characters."),
   description: z.string().trim().max(500, "Keep the description under 500 characters.").optional(),
-  scriptType: z.enum(["HTTP", "TruClient", "JMeter"], {
+  scriptType: z.enum(["HTTP", "TruClient", "JMeter", "k6"], {
     error: "Select a script type.",
   }),
   targetUrl: z.url("Enter a valid URL, including https://."),

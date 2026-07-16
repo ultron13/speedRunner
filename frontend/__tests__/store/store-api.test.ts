@@ -4,6 +4,7 @@ import { useAuthStore } from "@/store/auth-store";
 
 // Mock API client
 vi.mock("@/lib/api-client", () => ({
+  isGoBackendEnabled: () => false,
   apiClient: {
     setToken: vi.fn(),
     getTests: vi.fn().mockResolvedValue({ tests: [], total: 0 }),

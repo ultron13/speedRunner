@@ -10,6 +10,7 @@ import (
 
 	"github.com/belo/speedrunner/backend/internal/config"
 	"github.com/belo/speedrunner/backend/internal/db"
+	k8sclient "github.com/belo/speedrunner/backend/internal/k8s"
 	redisclient "github.com/belo/speedrunner/backend/internal/redis"
 	"github.com/belo/speedrunner/backend/internal/server"
 )
@@ -57,11 +58,30 @@ func main() {
 		pingCancel()
 	}
 
+	// Kubernetes client (optional — enables JMeter/k6 Job execution)
+	var k8s *k8sclient.Client
+	k8s, err = k8sclient.NewClient(cfg.K8s.ExecutionNS)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[warn] kubernetes client unavailable: %v — K8s engines disabled\n", err)
+		k8s = nil
+	} else {
+		// Verify we can reach the API
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if err := k8s.EnsureNamespace(pingCtx, cfg.K8s.ExecutionNS); err != nil {
+			fmt.Fprintf(os.Stderr, "[warn] k8s namespace check failed: %v — continuing; jobs may fail until RBAC/namespace is ready\n", err)
+		} else {
+			fmt.Printf("[k8s] connected (namespace=%s)\n", cfg.K8s.ExecutionNS)
+		}
+		pingCancel()
+	}
+
 	srv := server.New(server.Deps{
 		Config: cfg,
 		DB:     pg,
 		Redis:  rdb,
+		K8s:    k8s,
 	})
+	fmt.Printf("[engine] mode=%s\n", cfg.Engine.Mode)
 
 	// Background schedule loop
 	loopCtx, loopCancel := context.WithCancel(context.Background())

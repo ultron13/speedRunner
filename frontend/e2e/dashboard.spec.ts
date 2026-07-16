@@ -3,19 +3,31 @@ import { expect, test, type Page } from "@playwright/test";
 async function login(page: Page) {
   await page.goto("/");
   // Wait for login form
-  await expect(page.getByRole("heading", { name: "SpeedRunner Enterprise" })).toBeVisible({ timeout: 30_000 });
-  // Fill in demo credentials
+  await expect(
+    page.getByRole("heading", { name: "SpeedRunner Enterprise" }),
+  ).toBeVisible({ timeout: 30_000 });
+
   await page.getByLabel("Email").fill("admin@example.com");
   await page.getByLabel("Password").fill("admin123");
   await page.getByRole("button", { name: /sign in/i }).click();
-  // Wait for dashboard to load
-  await expect(page.getByText("Total Tests")).toBeVisible({ timeout: 30_000 });
+
+  // Wait for dashboard shell — not just a summary label (more stable across layouts)
+  await expect(
+    page.getByRole("heading", { name: "Performance dashboard" }),
+  ).toBeVisible({ timeout: 30_000 });
+
+  // Ensure summary cards finished hydrating
+  await expect(page.getByLabel("Dashboard summary").getByText("Total Tests")).toBeVisible({
+    timeout: 30_000,
+  });
 }
 
 test.describe("Authentication", () => {
   test("shows login page initially", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "SpeedRunner Enterprise" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "SpeedRunner Enterprise" }),
+    ).toBeVisible();
     await expect(page.getByLabel("Email")).toBeVisible();
     await expect(page.getByLabel("Password")).toBeVisible();
     await expect(page.getByRole("button", { name: /sign in/i })).toBeVisible();
@@ -26,7 +38,9 @@ test.describe("Authentication", () => {
     await page.getByLabel("Email").fill("wrong@example.com");
     await page.getByLabel("Password").fill("wrong");
     await page.getByRole("button", { name: /sign in/i }).click();
-    await expect(page.getByText("Invalid email or password")).toBeVisible();
+    await expect(page.getByText("Invalid email or password")).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test("logs in with valid credentials", async ({ page }) => {
@@ -45,7 +59,11 @@ test.describe("Dashboard", () => {
       page.getByRole("heading", { name: "Performance dashboard" }),
     ).toBeVisible();
     await expect(page.getByText("SpeedRunner Enterprise")).toBeVisible();
-    await expect(page.getByText("Monitor active load tests, response trends, and test infrastructure.")).toBeVisible();
+    await expect(
+      page.getByText(
+        "Monitor active load tests, response trends, and test infrastructure.",
+      ),
+    ).toBeVisible();
   });
 
   test("shows summary cards", async ({ page }) => {
@@ -58,8 +76,10 @@ test.describe("Dashboard", () => {
 
   test("shows active tests table with running tests", async ({ page }) => {
     await expect(page.getByText("Active Tests", { exact: true })).toBeVisible();
-    // Count running badges across the page (should have running tests)
-    const runningCount = await page.locator("span").filter({ hasText: /^running$/ }).count();
+    const runningCount = await page
+      .locator("span")
+      .filter({ hasText: /^running$/ })
+      .count();
     expect(runningCount).toBeGreaterThanOrEqual(1);
   });
 
@@ -68,10 +88,19 @@ test.describe("Dashboard", () => {
   });
 
   test("shows infrastructure health cards", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "Infrastructure Health" })).toBeVisible();
-    await expect(page.locator("[data-slot='card-title']", { hasText: "Controller" })).toBeVisible();
-    await expect(page.locator("[data-slot='card-title']", { hasText: "Load Generator" })).toBeVisible();
-    await expect(page.locator("[data-slot='card-title']", { hasText: "Database" })).toBeVisible();
+    // Infrastructure is lazy-loaded — scroll into view and wait
+    const heading = page.getByRole("heading", { name: "Infrastructure Health" });
+    await heading.scrollIntoViewIfNeeded().catch(() => undefined);
+    await expect(heading).toBeVisible({ timeout: 30_000 });
+    await expect(
+      page.locator("[data-slot='card-title']", { hasText: "Controller" }),
+    ).toBeVisible();
+    await expect(
+      page.locator("[data-slot='card-title']", { hasText: "Load Generator" }),
+    ).toBeVisible();
+    await expect(
+      page.locator("[data-slot='card-title']", { hasText: "Database" }),
+    ).toBeVisible();
   });
 
   test("shows trend charts", async ({ page }) => {
@@ -110,7 +139,9 @@ test.describe("Create Test Modal", () => {
     await page.getByRole("button", { name: "Create Test" }).click();
 
     await expect(page.getByRole("dialog")).not.toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText("My New Test").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("My New Test").first()).toBeVisible({
+      timeout: 10_000,
+    });
   });
 });
 
@@ -120,23 +151,34 @@ test.describe("Test Lifecycle", () => {
   });
 
   test("starts an idle test", async ({ page }) => {
-    const runningBefore = await page.locator("span").filter({ hasText: /^running$/ }).count();
-    // Find a row with "idle" status, then click its start button
+    const runningBefore = await page
+      .locator("span")
+      .filter({ hasText: /^running$/ })
+      .count();
     const idleRow = page.locator("tr").filter({ hasText: "idle" }).first();
     const startButton = idleRow.getByRole("button", { name: /start test/i });
     await expect(startButton).toBeEnabled({ timeout: 5_000 });
     await startButton.click();
 
-    await expect(page.locator("span").filter({ hasText: /^running$/ })).toHaveCount(runningBefore + 1, { timeout: 10_000 });
+    await expect(page.locator("span").filter({ hasText: /^running$/ })).toHaveCount(
+      runningBefore + 1,
+      { timeout: 10_000 },
+    );
   });
 
   test("stops a running test", async ({ page }) => {
-    const stoppedBefore = await page.locator("span").filter({ hasText: /^stopped$/ }).count();
+    const stoppedBefore = await page
+      .locator("span")
+      .filter({ hasText: /^stopped$/ })
+      .count();
     const runningRow = page.locator("tr").filter({ hasText: "running" }).first();
     const stopButton = runningRow.getByRole("button", { name: /stop test/i });
     await expect(stopButton).toBeEnabled({ timeout: 10_000 });
     await stopButton.click();
 
-    await expect(page.locator("span").filter({ hasText: /^stopped$/ })).toHaveCount(stoppedBefore + 1, { timeout: 15_000 });
+    await expect(page.locator("span").filter({ hasText: /^stopped$/ })).toHaveCount(
+      stoppedBefore + 1,
+      { timeout: 15_000 },
+    );
   });
 });
