@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { generateToken } from "@/lib/auth";
 import type {
   AuthState,
   CreateUserData,
@@ -99,10 +100,6 @@ function clearAuth() {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-function generateToken(): string {
-  return `token-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 export interface AuthStore extends AuthState {
   login: (credentials: LoginCredentials) => Promise<boolean>;
   logout: () => void;
@@ -149,7 +146,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       ...userWithoutPassword,
       lastLoginAt: new Date().toISOString(),
     };
-    const token = generateToken();
+    const token = generateToken({ userId: user.id, email: user.email, role: user.role });
 
     saveAuth(user, token);
     set({ user, isAuthenticated: true, isLoading: false });
@@ -206,7 +203,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     // Update current user if editing self
     if (user.id === id) {
       const updatedUser = { ...user, ...updates };
-      const token = generateToken();
+      const token = generateToken({ userId: updatedUser.id, email: updatedUser.email, role: updatedUser.role });
       saveAuth(updatedUser, token);
       set({ user: updatedUser });
     }
