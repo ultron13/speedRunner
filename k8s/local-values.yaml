@@ -82,3 +82,9 @@ postgresStandalone:
 nginx:
   enabled: false
   replicaCount: 1
+
+# MinIO
+minio:
+  enabled: true
+  rootUser: minioadmin
+  rootPassword: minioadmin

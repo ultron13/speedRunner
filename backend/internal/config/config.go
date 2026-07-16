@@ -88,3 +88,12 @@ func getEnvInt(key string, fallback int) int {
 	}
 	return fallback
 }
+
+// MinIOConfig holds MinIO configuration
+type MinIOConfig struct {
+	Endpoint   string
+	AccessKey  string
+	SecretKey  string
+	UseSSL     bool
+	BucketName string
+}
