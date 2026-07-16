@@ -1,0 +1,42 @@
+SpeedRunner Enterprise has been deployed successfully!
+
+{{- if .Values.ingress.enabled }}
+
+The application is accessible via Ingress:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+
+{{- else if .Values.nginx.enabled }}
+
+Get the application URL by running:
+  export SERVICE_IP=$(kubectl get svc {{ include "speedrunner.fullname" . }}-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  echo http://$SERVICE_IP
+
+{{- else }}
+
+Get the application URL by running:
+  export POD_NAME=$(kubectl get pods -l "app.kubernetes.io/name={{ include "speedrunner.name" . }},app.kubernetes.io/component=app" -o jsonpath="{.items[0].metadata.name}")
+  kubectl port-forward $POD_NAME {{ .Values.service.httpPort }}:{{ .Values.service.httpPort }} {{ .Values.service.wsPort }}:{{ .Values.service.wsPort }}
+
+{{- end }}
+
+Health check endpoint:
+  http://localhost:{{ .Values.service.healthPort }}/health
+
+WebSocket endpoint:
+  ws://localhost:{{ .Values.service.wsPort }}
+
+Redis:
+  {{- if .Values.redisStandalone.enabled }}
+  {{ include "speedrunner.fullname" . }}-redis:{{ .Values.redis.port }}
+  {{- else }}
+  External Redis: {{ .Values.redis.host }}:{{ .Values.redis.port }}
+  {{- end }}
+
+PostgreSQL:
+  {{- if .Values.postgresStandalone.enabled }}
+  {{ include "speedrunner.fullname" . }}-postgres:{{ .Values.postgres.port }}
+  {{- else }}
+  External PostgreSQL: {{ .Values.postgres.host }}:{{ .Values.postgres.port }}
+  {{- end }}

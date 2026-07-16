@@ -25,12 +25,11 @@ import {
 } from "./lib/simulation";
 import type { ClientMessage, ServerMessage, TickUpdate } from "./lib/ws-types";
 import type {
-  CreateTestInput,
   LiveMetrics,
 } from "./types";
 
 const dev = process.env.NODE_ENV !== "production";
-const hostname = "0.0.0.0";
+const hostname = process.env.HOSTNAME || "0.0.0.0";
 const port = parseInt(process.env.PORT ?? "8787", 10);
 const wsPort = parseInt(process.env.WS_PORT ?? "8788", 10);
 
@@ -109,13 +108,13 @@ async function startTickIfNeeded() {
 
 // ── Action handlers ──────────────────────────────────────────────
 
-async function handleCreateTest(data: CreateTestInput) {
+async function handleCreateTest(data: { name: string; description?: string; scriptType: string; targetUrl: string; virtualUsers: number }) {
   const now = new Date().toISOString();
   const newTest = {
     id: newId("test"),
     name: data.name.trim(),
     description: data.description?.trim() ?? "",
-    scriptType: data.scriptType,
+    scriptType: data.scriptType as "HTTP" | "TruClient" | "JMeter",
     targetUrl: data.targetUrl.trim(),
     virtualUsers: data.virtualUsers,
     status: "idle" as const,

@@ -1,0 +1,186 @@
+# Default values for speedrunner
+# This is a YAML-formatted file
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/belo/speedrunner
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 1001
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  httpPort: 8787
+  wsPort: 8788
+  healthPort: 9090
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+    nginx.ingress.kubernetes.io/websocket-services: speedrunner
+  hosts:
+    - host: speedrunner.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: speedrunner-tls
+      hosts:
+        - speedrunner.example.com
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: health
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: health
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+startupProbe:
+  httpGet:
+    path: /health
+    port: health
+  failureThreshold: 30
+  periodSeconds: 10
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Redis configuration
+redis:
+  enabled: true
+  host: ""
+  port: 6379
+  password: ""
+
+# PostgreSQL configuration
+postgres:
+  enabled: true
+  host: ""
+  port: 5432
+  database: speedrunner
+  user: speedrunner
+  password: ""
+
+# Application environment variables
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  LOG_FORMAT: json
+
+# Nginx configuration
+nginx:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: nginx
+    tag: "alpine"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# Redis standalone deployment
+redisStandalone:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+  storage:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+
+# PostgreSQL standalone deployment
+postgresStandalone:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "15-alpine"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  storage:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+  database: speedrunner
+  user: speedrunner
+  password: ""

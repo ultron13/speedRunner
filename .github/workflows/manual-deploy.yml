@@ -1,0 +1,87 @@
+name: Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      image_tag:
+        description: "Docker image tag (default: latest)"
+        required: false
+        default: "latest"
+      namespace:
+        description: "Kubernetes namespace"
+        required: false
+        default: "speedrunner"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.14.0"
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ inputs.environment == 'production' && secrets.KUBE_CONFIG_PRODUCTION || secrets.KUBE_CONFIG_STAGING }}
+
+      - name: Create/Update namespace
+        run: |
+          kubectl create namespace ${{ inputs.namespace }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy secrets
+        run: |
+          SECRET_NAME="${{ inputs.environment == 'production' && secrets.POSTGRES_PASSWORD_PRODUCTION || secrets.POSTGRES_PASSWORD_STAGING }}"
+          kubectl create secret generic speedrunner-secret \
+            --namespace ${{ inputs.namespace }} \
+            --from-literal=postgres-password="$SECRET_NAME" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install speedrunner helm/speedrunner \
+            --namespace ${{ inputs.namespace }} \
+            -f helm/speedrunner/values-${{ inputs.environment }}.yaml \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+            --set image.tag=${{ inputs.image_tag }} \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/speedrunner \
+            --namespace ${{ inputs.namespace }} \
+            --timeout=600s
+
+      - name: Show deployment status
+        run: |
+          echo "=== Pods ==="
+          kubectl get pods -n ${{ inputs.namespace }} -l app.kubernetes.io/instance=speedrunner
+          echo ""
+          echo "=== Services ==="
+          kubectl get svc -n ${{ inputs.namespace }} -l app.kubernetes.io/instance=speedrunner
+          echo ""
+          echo "=== Ingress ==="
+          kubectl get ingress -n ${{ inputs.namespace }} -l app.kubernetes.io/instance=speedrunner

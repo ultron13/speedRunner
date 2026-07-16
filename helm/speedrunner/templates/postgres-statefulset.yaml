@@ -1,0 +1,77 @@
+{{- if .Values.postgresStandalone.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "speedrunner.fullname" . }}-postgres
+  labels:
+    {{- include "speedrunner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: {{ include "speedrunner.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "speedrunner.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        {{- include "speedrunner.labels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.postgresStandalone.image.repository }}:{{ .Values.postgresStandalone.image.tag }}"
+          imagePullPolicy: {{ .Values.postgresStandalone.image.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresStandalone.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresStandalone.user | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "speedrunner.fullname" . }}-secret
+                  key: postgres-password
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresStandalone.user }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresStandalone.user }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.postgresStandalone.resources | nindent 12 }}
+          {{- if .Values.postgresStandalone.storage.enabled }}
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          {{- end }}
+  {{- if .Values.postgresStandalone.storage.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- if .Values.postgresStandalone.storage.storageClass }}
+        storageClassName: {{ .Values.postgresStandalone.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresStandalone.storage.size }}
+  {{- end }}
+{{- end }}

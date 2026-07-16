@@ -1,0 +1,138 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NAMESPACE: speedrunner
+  RELEASE_NAME: speedrunner
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment: staging
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.14.0"
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
+
+      - name: Create/Update namespace
+        run: |
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy Redis secret
+        run: |
+          kubectl create secret generic ${{ env.RELEASE_NAME }}-secret \
+            --namespace ${{ env.NAMESPACE }} \
+            --from-literal=postgres-password=${{ secrets.POSTGRES_PASSWORD_STAGING }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy to staging
+        run: |
+          helm upgrade --install ${{ env.RELEASE_NAME }} helm/speedrunner \
+            --namespace ${{ env.NAMESPACE }} \
+            -f helm/speedrunner/values-staging.yaml \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+            --set image.tag=${{ github.sha }} \
+            --wait \
+            --timeout 5m
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/${{ env.RELEASE_NAME }} \
+            --namespace ${{ env.NAMESPACE }} \
+            --timeout=300s
+
+      - name: Run smoke tests
+        run: |
+          # Port forward and test health endpoint
+          kubectl port-forward svc/${{ env.RELEASE_NAME }} 8787:8787 -n ${{ env.NAMESPACE }} &
+          sleep 10
+          curl -f http://localhost:8787/health || exit 1
+          kill %1
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.14.0"
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_PRODUCTION }}
+
+      - name: Create/Update namespace
+        run: |
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy secrets
+        run: |
+          kubectl create secret generic ${{ env.RELEASE_NAME }}-secret \
+            --namespace ${{ env.NAMESPACE }} \
+            --from-literal=postgres-password=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy to production
+        run: |
+          helm upgrade --install ${{ env.RELEASE_NAME }} helm/speedrunner \
+            --namespace ${{ env.NAMESPACE }} \
+            -f helm/speedrunner/values-prod.yaml \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+            --set image.tag=${{ github.sha }} \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/${{ env.RELEASE_NAME }} \
+            --namespace ${{ env.NAMESPACE }} \
+            --timeout=600s
+
+      - name: Run smoke tests
+        run: |
+          kubectl port-forward svc/${{ env.RELEASE_NAME }} 8787:8787 -n ${{ env.NAMESPACE }} &
+          sleep 15
+          curl -f http://localhost:8787/health || exit 1
+          kill %1
+
+      - name: Notify deployment
+        if: success()
+        run: |
+          echo "✅ Production deployment successful"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "Commit: ${{ github.sha }}"

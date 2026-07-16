@@ -1,0 +1,51 @@
+name: Cleanup
+
+on:
+  schedule:
+    - cron: "0 2 * * 0"  # Weekly on Sunday at 2 AM
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  cleanup-images:
+    name: Clean old container images
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Delete untagged images
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const packageName = '${{ env.IMAGE_NAME }}'.split('/').pop();
+            const images = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+              package_type: 'container',
+              package_name: packageName,
+              org: context.repo.owner,
+            });
+            
+            let deleted = 0;
+            for (const version of images.data) {
+              // Keep tagged versions and recent untagged
+              if (version.metadata?.container?.tags?.length > 0) {
+                continue;
+              }
+              
+              // Delete untagged images older than 7 days
+              const created = new Date(version.created_at);
+              const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+              if (created < sevenDaysAgo) {
+                await github.rest.packages.deletePackageVersionForOrg({
+                  package_type: 'container',
+                  package_name: packageName,
+                  org: context.repo.owner,
+                  package_version_id: version.id,
+                });
+                deleted++;
+              }
+            }
+            
+            console.log(`Deleted ${deleted} untagged images`);

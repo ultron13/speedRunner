@@ -57,6 +57,20 @@ import { SecurityAlerts } from "@/components/security/SecurityAlerts";
 import { CICDPipelines } from "@/components/cicd/CICDPipelines";
 import { AutomationRules } from "@/components/cicd/AutomationRules";
 import { DeploymentTracking } from "@/components/cicd/DeploymentTracking";
+import { DataExports } from "@/components/data-utilities/DataExports";
+import { DataImports } from "@/components/data-utilities/DataImports";
+import { ScheduledExports } from "@/components/data-utilities/ScheduledExports";
+import { PerformanceBenchmark } from "@/components/benchmarking/PerformanceBenchmark";
+import { APIDocumentation } from "@/components/api/APIDocumentation";
+import { AlertRules } from "@/components/alerting/AlertRules";
+import { TeamManagement } from "@/components/collaboration/TeamManagement";
+import { LanguageSelector } from "@/components/i18n/LanguageSelector";
+import { UserPreferencesPanel } from "@/components/preferences/UserPreferencesPanel";
+import { SystemStatusPanel } from "@/components/system/SystemStatusPanel";
+import { HelpPanel } from "@/components/help/HelpPanel";
+import { EnvironmentManager } from "@/components/deployment/EnvironmentManager";
+import { DeploymentPipelines } from "@/components/deployment/DeploymentPipelines";
+import { DeploymentHistory } from "@/components/deployment/DeploymentHistory";
 import { MobileNav } from "@/components/mobile/MobileNav";
 import { OfflineIndicator } from "@/components/mobile/OfflineIndicator";
 import { ToastContainer } from "@/components/ui/toast";
@@ -248,6 +262,30 @@ export default function DashboardPage() {
               <AutomationRules />
             </div>
             <DeploymentTracking />
+            <div className="grid gap-6 xl:grid-cols-2">
+              <DataExports />
+              <DataImports />
+            </div>
+            <ScheduledExports />
+            <div className="grid gap-6 xl:grid-cols-2">
+              <PerformanceBenchmark />
+              <APIDocumentation />
+            </div>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <AlertRules />
+              <TeamManagement />
+            </div>
+            <LanguageSelector />
+            <div className="grid gap-6 xl:grid-cols-2">
+              <UserPreferencesPanel />
+              <SystemStatusPanel />
+            </div>
+            <HelpPanel />
+            <div className="grid gap-6 xl:grid-cols-2">
+              <EnvironmentManager />
+              <DeploymentPipelines />
+            </div>
+            <DeploymentHistory />
           </>
         )}
         <BulkActions />

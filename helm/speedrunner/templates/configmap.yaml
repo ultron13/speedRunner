@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "speedrunner.fullname" . }}-config
+  labels:
+    {{- include "speedrunner.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  PORT: {{ .Values.service.httpPort | quote }}
+  WS_PORT: {{ .Values.service.wsPort | quote }}
+  HEALTH_PORT: {{ .Values.service.healthPort | quote }}
