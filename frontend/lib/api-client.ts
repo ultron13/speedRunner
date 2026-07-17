@@ -1100,6 +1100,67 @@ class APIClient {
   async connectorAction(data: Record<string, unknown>) {
     return this.request<Record<string, unknown>>("/connectors", { method: "POST", body: data });
   }
+
+  // ── Real OIDC / SCIM / Jira adapters ───────────────────────────────────────
+  async oidcStatus() {
+    return this.request<Record<string, unknown>>("/auth/oidc/status");
+  }
+
+  async oidcBeginLogin() {
+    return this.request<{ authorizationUrl?: string; state?: string }>("/auth/oidc/login");
+  }
+
+  async oidcDemoLogin() {
+    return this.request<Record<string, unknown>>("/auth/oidc/login?demo=1");
+  }
+
+  /** SCIM uses /api/scim/v2 — still under api root. */
+  async scimListUsers(filter?: string) {
+    const q = filter ? `?filter=${encodeURIComponent(filter)}` : "";
+    return this.request<{
+      totalResults: number;
+      Resources: Array<Record<string, unknown>>;
+    }>(`/scim/v2/Users${q}`);
+  }
+
+  async scimCreateUser(user: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/scim/v2/Users", {
+      method: "POST",
+      body: user,
+    });
+  }
+
+  async scimPatchUser(id: string, patch: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>(`/scim/v2/Users/${id}`, {
+      method: "PATCH",
+      body: patch,
+    });
+  }
+
+  async jiraStatus() {
+    return this.request<Record<string, unknown>>("/integrations/jira/status");
+  }
+
+  async jiraCreateIssue(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/integrations/jira/issues", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async jiraSearch(data: { jql?: string; maxResults?: number }) {
+    return this.request<Record<string, unknown>>("/integrations/jira/search", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async jiraDefectFromRun(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/integrations/jira/defect-from-run", {
+      method: "POST",
+      body: data,
+    });
+  }
 }
 
 export const apiClient = new APIClient();

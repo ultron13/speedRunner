@@ -321,11 +321,11 @@ func (s *Server) platformPhases8Handler(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// Combined phases 7–13 catalog
+// Combined phases 7–14 catalog
 func (s *Server) platformAllPhasesHandler(w http.ResponseWriter, r *http.Request) {
 	all, counts := platform.AllPhaseCatalogs()
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"waves":        []string{"7", "8", "9", "10", "11", "12", "13"},
+		"waves":        []string{"7", "8", "9", "10", "11", "12", "13", "14"},
 		"count":        len(all),
 		"phase7Count":  counts["7"],
 		"phase8Count":  counts["8"],
@@ -334,6 +334,7 @@ func (s *Server) platformAllPhasesHandler(w http.ResponseWriter, r *http.Request
 		"phase11Count": counts["11"],
 		"phase12Count": counts["12"],
 		"phase13Count": counts["13"],
+		"phase14Count": counts["14"],
 		"phases":       all,
 	})
 }

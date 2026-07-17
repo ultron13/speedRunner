@@ -46,7 +46,10 @@ export function ObservabilityPanel() {
   }
 
   useEffect(() => {
-    void refresh();
+    // Defer async refresh so setState is not synchronous in the effect body.
+    queueMicrotask(() => {
+      void refresh();
+    });
   }, []);
 
   async function seedDemo() {

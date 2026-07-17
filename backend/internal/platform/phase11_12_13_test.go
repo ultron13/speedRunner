@@ -169,10 +169,11 @@ func TestPhase13EdgeFinOpsConnectors(t *testing.T) {
 		t.Fatal(len(Phase13Catalog()))
 	}
 	all, counts := AllPhaseCatalogs()
-	if len(all) != 350 {
-		t.Fatalf("want 350 got %d", len(all))
+	// Waves 7–13 = 350; phase 14 adds 20 → 370
+	if len(all) != 370 {
+		t.Fatalf("want 370 got %d", len(all))
 	}
-	if counts["13"] != 50 || counts["11"] != 50 {
+	if counts["13"] != 50 || counts["11"] != 50 || counts["14"] != 20 {
 		t.Fatal(counts)
 	}
 }

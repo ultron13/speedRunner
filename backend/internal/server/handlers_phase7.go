@@ -347,6 +347,11 @@ func (s *Server) platformPhasesHandler(w http.ResponseWriter, r *http.Request) {
 			"wave": "13", "count": 50, "phases": platform.Phase13Catalog(),
 		})
 		return
+	case "14":
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"wave": "14", "count": 20, "phases": platform.Phase14Catalog(),
+		})
+		return
 	case "all":
 		s.platformAllPhasesHandler(w, r)
 		return

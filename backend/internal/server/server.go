@@ -105,8 +105,11 @@ type Server struct {
 	OIDC      *auth.OIDCProvider
 	Jira      *jira.Client
 	SCIMUsers *scim.Store
-	httpSrv   *http.Server
-	cancelOps context.CancelFunc
+	// Phase 14
+	Annotations *platform.AnnotationStore
+	DeadLetters *platform.DeadLetterQueue
+	httpSrv     *http.Server
+	cancelOps   context.CancelFunc
 }
 
 type Deps struct {
@@ -161,6 +164,8 @@ func New(deps Deps) *Server {
 		Connectors:     platform.NewConnectorHub(),
 		Deliveries:     platform.NewDeliveryLedger(),
 		SCIMUsers:      scim.NewStore("/api/scim/v2"),
+		Annotations:    platform.NewAnnotationStore(),
+		DeadLetters:    platform.NewDeadLetterQueue(),
 	}
 	if deps.Config != nil {
 		s.Policy = policy.DefaultEnterpriseEngine(deps.Config.Engine.MaxVUs)
@@ -507,7 +512,25 @@ func (s *Server) setupRoutes() {
 			r.With(s.requirePermission("project:read")).Get("/platform/phases/11", s.platformPhases11Handler)
 			r.With(s.requirePermission("project:read")).Get("/platform/phases/12", s.platformPhases12Handler)
 			r.With(s.requirePermission("project:read")).Get("/platform/phases/13", s.platformPhases13Handler)
+			r.With(s.requirePermission("project:read")).Get("/platform/phases/14", s.platformPhases14Handler)
 			r.With(s.requirePermission("project:read")).Get("/platform/phases/all", s.platformAllPhasesHandler)
+
+			// Phase 14.1–14.20 enterprise extensions
+			r.With(s.requirePermission("test:read")).Get("/workspace/templates", s.workspaceTemplatesHandler)
+			r.With(s.requirePermission("admin:read")).Post("/security/secret-rotation", s.secretRotationHandler)
+			r.With(s.requirePermission("run:read")).Get("/runs/annotations", s.runAnnotationsHandler)
+			r.With(s.requirePermission("run:execute")).Post("/runs/annotations", s.runAnnotationsHandler)
+			r.With(s.requirePermission("schedule:read")).Post("/platform/freeze", s.freezeWindowsHandler)
+			r.With(s.requirePermission("test:read")).Post("/impact/dependencies", s.dependencyImpactHandler)
+			r.With(s.requirePermission("run:read")).Post("/scorecard", s.scorecardHandler)
+			r.With(s.requirePermission("project:read")).Post("/experiments/bucket", s.experimentBucketHandler)
+			r.With(s.requirePermission("audit:read")).Post("/audit/export", s.auditExportHandler)
+			r.With(s.requirePermission("admin:read")).Get("/webhooks/dead-letters", s.deadLetterHandler)
+			r.With(s.requirePermission("admin:write")).Post("/webhooks/dead-letters", s.deadLetterHandler)
+			r.With(s.requirePermission("test:read")).Post("/suites/order", s.suitePackHandler)
+			r.With(s.requirePermission("run:execute")).Post("/env/promotion", s.promotionGateHandler)
+			r.With(s.requirePermission("test:read")).Post("/security/secret-scan", s.secretScanHandler)
+			r.With(s.requirePermission("admin:read")).Post("/security/ip-allowlist", s.ipAllowlistHandler)
 
 			// Phase 11 — multi-tenant SaaS, marketplace, licensing
 			r.With(s.requirePermission("admin:read")).Get("/tenants", s.tenantsHandler)

@@ -15,7 +15,8 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(path + "/"));
 }
 
-function requiresRole(pathname: string, requiredRoles: string[]): { required: boolean; role: string } | null {
+function requiresRole(pathname: string, _requiredRoles?: string[]): { required: boolean; role: string } | null {
+  void _requiredRoles;
   for (const path of ADMIN_PATHS) {
     if (pathname.startsWith(path)) {
       return { required: true, role: "admin" };

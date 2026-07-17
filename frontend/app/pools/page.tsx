@@ -86,7 +86,10 @@ export default function PoolsPage() {
   };
 
   useEffect(() => {
-    void load();
+    // Defer so setState is not synchronous in the effect body (react-hooks/set-state-in-effect).
+    queueMicrotask(() => {
+      void load();
+    });
   }, []);
 
   return (

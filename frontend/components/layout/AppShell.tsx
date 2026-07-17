@@ -14,6 +14,7 @@ import {
   Shield,
   FlaskConical,
   Sparkles,
+  Settings2,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -34,6 +35,7 @@ const nav = [
   { href: "/engines", label: "Engines", icon: Gauge },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/admin", label: "Admin", icon: Settings2 },
 ];
 
 export function AppShell({

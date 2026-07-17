@@ -35,8 +35,11 @@ export function useWebSocket() {
   useEffect(() => {
     // Go control plane uses REST + metric polling — skip local WS simulation server
     if (isGoBackendEnabled()) {
-      setConnected(true);
-      setError(null);
+      // Defer setState out of the synchronous effect body.
+      queueMicrotask(() => {
+        setConnected(true);
+        setError(null);
+      });
       return;
     }
 

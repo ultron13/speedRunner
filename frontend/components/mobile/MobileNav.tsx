@@ -7,7 +7,6 @@ import {
   FlaskConical,
   BarChart3,
   FileText,
-  Server,
   Sparkles,
 } from "lucide-react";
 
@@ -25,8 +24,9 @@ export interface MobileNavProps {
   onNavigate?: (section: string) => void;
 }
 
-export function MobileNav(_props: MobileNavProps = {}) {
+export function MobileNav(_props?: MobileNavProps) {
   const pathname = usePathname();
+  void _props;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 border-t bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 lg:hidden">

@@ -409,7 +409,8 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-export function triggerPrintPDF(html: string, filename: string) {
+export function triggerPrintPDF(html: string, _filename?: string) {
+  void _filename;
   const printWindow = window.open("", "_blank");
   if (!printWindow) return;
 

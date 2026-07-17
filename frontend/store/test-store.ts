@@ -1075,7 +1075,7 @@ export const useTestStore = create<TestStore>((set, get) => ({
   },
 
   replayTest: (runId) => {
-    const { runs, tests, createTest, startTest } = get();
+    const { runs, tests, startTest } = get();
     const run = runs.find((r) => r.id === runId);
     if (!run) return;
 

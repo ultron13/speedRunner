@@ -1,6 +1,6 @@
 # SpeedRunner Implementation Phases
 
-Mapped from `Implementation/32-Full-Project-Implementation-Backlog.md` plus production waves **7.1–13.50** (350 catalog items).
+Mapped from `Implementation/32-Full-Project-Implementation-Backlog.md` plus production waves **7.1–14.20** (370 catalog items).
 
 ## Completed waves
 
@@ -18,6 +18,7 @@ Mapped from `Implementation/32-Full-Project-Implementation-Backlog.md` plus prod
 | **11.1–11.50** | Multi-tenant SaaS, marketplace, licensing | **Done** |
 | **12.1–12.50** | CI quality gates, digital twin, chaos, journeys | **Done** |
 | **13.1–13.50** | Edge/mobile, FinOps carbon, partner connectors | **Done** |
+| **14.1–14.20** | Enterprise extensions (templates, freeze, DLQ, …) | **Done** |
 
 ## Phase 11 API map
 
@@ -51,16 +52,52 @@ Mapped from `Implementation/32-Full-Project-Implementation-Backlog.md` plus prod
 | `/api/connectors` | Jira, Slack, GitHub, Datadog, … hub |
 | `/api/webhooks/deliveries` | Webhook delivery ledger & retry |
 
+## Phase 14 (14.1–14.20) API map
+
+| API | Focus |
+| --- | --- |
+| `GET /api/workspace/templates` | Starter workspace packs |
+| `POST /api/security/secret-rotation` | Rotation due checks |
+| `/api/runs/annotations` | Run notes / bookmarks |
+| `POST /api/platform/freeze` | Change freeze windows |
+| `POST /api/impact/dependencies` | Downstream impact BFS |
+| `POST /api/scorecard` | Engineering scorecard |
+| `POST /api/experiments/bucket` | A/B experiment bucket |
+| `POST /api/audit/export` | Audit CSV export |
+| `/api/webhooks/dead-letters` | Webhook DLQ |
+| `POST /api/suites/order` | Suite pack ordering |
+| `POST /api/env/promotion` | Env promotion gate |
+| `POST /api/security/secret-scan` | Pre-run secret scan |
+| `POST /api/security/ip-allowlist` | IP allowlist check |
+
 ## Phase catalogs
 
-- `GET /api/platform/phases?wave=7\|8\|…\|13\|all`
-- `GET /api/platform/phases/{7..13}` and `/all` → **350** items
+- `GET /api/platform/phases?wave=7\|8\|…\|14\|all`
+- `GET /api/platform/phases/{7..14}` and `/all` → **370** items
 
 ### Domain modules
 
 - `backend/internal/platform/phase7.go` … `phase13.go`
 - `backend/internal/server/handlers_phase7.go` … `handlers_phase11_13.go`
 - `frontend/lib/api-client.ts` — client methods for waves 7–13
+
+## Real adapters (OIDC / SCIM / Jira)
+
+| Adapter | Endpoints | Config |
+| --- | --- | --- |
+| **OIDC** | `GET /api/auth/oidc/status`, `/login`, `/callback` | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URL` |
+| **SCIM 2.0** | `/api/scim/v2/Users`, `ServiceProviderConfig` | `SCIM_TOKEN` or admin JWT |
+| **Jira** | `/api/integrations/jira/*` | `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` |
+
+### Admin UI
+
+- `/admin` — hub
+- `/admin/sso` — OIDC status + demo login
+- `/admin/scim` — directory provision / deactivate
+- `/admin/connectors` — partner hub + Jira issue/search/defect
+- `/admin/tenants` — multi-tenant workspaces
+- `/admin/marketplace` — install scripts/templates
+- `/admin/finops` — cost + carbon estimates
 
 ## Local minikube
 

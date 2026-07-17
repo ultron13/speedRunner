@@ -21,7 +21,6 @@ export function RecentRunsTable() {
   const toggleRunSelection = useTestStore((state) => state.toggleRunSelection);
   const replayTest = useTestStore((state) => state.replayTest);
   const cloneTestConfig = useTestStore((state) => state.cloneTestConfig);
-  const [clonedConfig, setClonedConfig] = useState<ReturnType<typeof cloneTestConfig>>(null);
 
   const filteredRuns = useMemo(() => {
     let runs = [...allRuns].sort(
@@ -53,8 +52,8 @@ export function RecentRunsTable() {
   };
 
   const handleClone = (testId: string) => {
-    const config = cloneTestConfig(testId);
-    setClonedConfig(config);
+    // Returns config for consumers / future modal; clone action is intentional side effect.
+    void cloneTestConfig(testId);
   };
 
   return (

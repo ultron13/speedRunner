@@ -288,7 +288,7 @@ func Phase13Catalog() []map[string]string {
 	return items
 }
 
-// AllPhaseCatalogs merges waves 7–13 for /platform/phases/all.
+// AllPhaseCatalogs merges waves 7–14 for /platform/phases/all.
 func AllPhaseCatalogs() (all []map[string]string, counts map[string]int) {
 	p7 := PhaseCatalog()
 	p8 := Phase8Catalog()
@@ -297,7 +297,8 @@ func AllPhaseCatalogs() (all []map[string]string, counts map[string]int) {
 	p11 := Phase11Catalog()
 	p12 := Phase12Catalog()
 	p13 := Phase13Catalog()
-	all = make([]map[string]string, 0, 350)
+	p14 := Phase14Catalog()
+	all = make([]map[string]string, 0, 370)
 	all = append(all, p7...)
 	all = append(all, p8...)
 	all = append(all, p9...)
@@ -305,9 +306,10 @@ func AllPhaseCatalogs() (all []map[string]string, counts map[string]int) {
 	all = append(all, p11...)
 	all = append(all, p12...)
 	all = append(all, p13...)
+	all = append(all, p14...)
 	counts = map[string]int{
 		"7": len(p7), "8": len(p8), "9": len(p9), "10": len(p10),
-		"11": len(p11), "12": len(p12), "13": len(p13),
+		"11": len(p11), "12": len(p12), "13": len(p13), "14": len(p14),
 	}
 	return all, counts
 }
