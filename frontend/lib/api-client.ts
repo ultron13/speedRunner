@@ -599,6 +599,507 @@ class APIClient {
     }
     return this.request<{ status: string; service: string; version: string }>("/health");
   }
+
+  // ── Phase 7 platform APIs ──────────────────────────────────────────────────
+  async getFeatureFlags() {
+    return this.request<Record<string, boolean>>("/platform/flags");
+  }
+
+  async setFeatureFlag(name: string, enabled: boolean) {
+    return this.request<Record<string, boolean>>("/platform/flags", {
+      method: "POST",
+      body: { name, enabled },
+    });
+  }
+
+  async getMaintenance() {
+    return this.request<{ window: Record<string, unknown>; active: boolean }>("/platform/maintenance");
+  }
+
+  async setMaintenance(window: Record<string, unknown>) {
+    return this.request<{ window: Record<string, unknown>; active: boolean }>("/platform/maintenance", {
+      method: "POST",
+      body: window,
+    });
+  }
+
+  async getExecutionWindows() {
+    return this.request<{
+      windows: Array<Record<string, unknown>>;
+      allowedNow: boolean;
+      reason: string;
+    }>("/platform/windows");
+  }
+
+  async getApprovals(status?: string) {
+    const q = status ? `?status=${encodeURIComponent(status)}` : "";
+    return this.request<Array<Record<string, unknown>>>(`/approvals${q}`);
+  }
+
+  async createApproval(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/approvals", { method: "POST", body: data });
+  }
+
+  async decideApproval(id: string, data: { status: string; reason?: string }) {
+    return this.request<Record<string, unknown>>(`/approvals/${id}/decide`, {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async compareRuns(baseline: Record<string, unknown>, candidate: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/runs/compare", {
+      method: "POST",
+      body: { baseline, candidate },
+    });
+  }
+
+  async aggregateTrends(points: Array<Record<string, unknown>>, bucketMinutes?: number) {
+    return this.request<Record<string, unknown>>("/trends/aggregate", {
+      method: "POST",
+      body: { points, bucketMinutes },
+    });
+  }
+
+  async getNotifications() {
+    return this.request<Array<Record<string, unknown>>>("/notifications");
+  }
+
+  async publishNotification(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/notifications", { method: "POST", body: data });
+  }
+
+  async getArtifacts(runId?: string) {
+    const q = runId ? `?runId=${encodeURIComponent(runId)}` : "";
+    return this.request<Array<Record<string, unknown>>>(`/artifacts${q}`);
+  }
+
+  async createArtifact(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/artifacts", { method: "POST", body: data });
+  }
+
+  async securityUtils(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/security/utils", { method: "POST", body: data });
+  }
+
+  async chargeback(lines?: Array<Record<string, unknown>>) {
+    return this.request<Record<string, unknown>>("/chargeback", { method: "POST", body: lines ?? [] });
+  }
+
+  async getRetention() {
+    return this.request<Record<string, unknown>>("/retention");
+  }
+
+  async getWorkloads() {
+    return this.request<Array<Record<string, unknown>>>("/workloads");
+  }
+
+  async getJourneys() {
+    return this.request<Array<Record<string, unknown>>>("/journeys");
+  }
+
+  async releaseBoard(items?: Array<Record<string, unknown>>) {
+    return this.request<Record<string, unknown>>("/release-board", {
+      method: "POST",
+      body: items ?? [],
+    });
+  }
+
+  async getHealthMatrix() {
+    return this.request<Record<string, unknown>>("/health-matrix");
+  }
+
+  async getPlatformPhases(wave?: "7" | "8" | "all") {
+    const q = wave ? `?wave=${wave}` : "";
+    return this.request<{
+      wave?: string;
+      waves?: string[];
+      count: number;
+      phase7Count?: number;
+      phase8Count?: number;
+      phases: Array<{ id: string; name: string }>;
+    }>(`/platform/phases${q}`);
+  }
+
+  // ── Phase 8 advanced ops APIs ──────────────────────────────────────────────
+  async getOutbox() {
+    return this.request<{ pending: Array<Record<string, unknown>> }>("/platform/outbox");
+  }
+
+  async enqueueOutbox(type: string, payload: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/platform/outbox", {
+      method: "POST",
+      body: { type, payload },
+    });
+  }
+
+  async signWebhook(data: { secret: string; body: string; action?: "sign" | "verify"; signature?: string }) {
+    return this.request<Record<string, unknown>>("/platform/webhooks/sign", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async checkIdempotency(key: string) {
+    return this.request<{ key: string; first: boolean; duplicate: boolean }>("/platform/idempotency", {
+      method: "POST",
+      body: { key },
+    });
+  }
+
+  async softDelete(id: string, action: "delete" | "restore" | "check" = "delete") {
+    return this.request<{ id: string; deleted: boolean }>("/platform/soft-delete", {
+      method: "POST",
+      body: { id, action },
+    });
+  }
+
+  async evaluateAlert(rule: Record<string, unknown>, value: number) {
+    return this.request<{ fired: boolean; message: string }>("/alerts/evaluate", {
+      method: "POST",
+      body: { rule, value },
+    });
+  }
+
+  async sloStatus(slo: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/slo/status", { method: "POST", body: slo });
+  }
+
+  async circuitBreaker(action: "allow" | "success" | "failure" | "state" = "state") {
+    return this.request<Record<string, unknown>>("/platform/circuit", {
+      method: "POST",
+      body: { action },
+    });
+  }
+
+  async watchdog(data: {
+    durationSec: number;
+    maxDurationSec: number;
+    errorRate: number;
+    maxErrorRate: number;
+  }) {
+    return this.request<{ shouldStop: boolean; reason: string }>("/platform/watchdog", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async getFairQueue() {
+    return this.request<{ len: number }>("/platform/queue");
+  }
+
+  async fairQueueAction(data: { action: "enqueue" | "dequeue"; run?: Record<string, unknown> }) {
+    return this.request<Record<string, unknown>>("/platform/queue", { method: "POST", body: data });
+  }
+
+  async progressiveRamp(data: {
+    targetVUs: number;
+    rampSec: number;
+    steps: number;
+    elapsedSec?: number;
+  }) {
+    return this.request<Record<string, unknown>>("/platform/ramp", { method: "POST", body: data });
+  }
+
+  async budgetStatus(budget: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/platform/budget", { method: "POST", body: budget });
+  }
+
+  async getUserPrefs() {
+    return this.request<{ searches: Array<Record<string, unknown>>; bookmarks: Array<Record<string, unknown>> }>(
+      "/platform/prefs",
+    );
+  }
+
+  async saveUserPref(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/platform/prefs", { method: "POST", body: data });
+  }
+
+  async classifyData(text: string) {
+    return this.request<Record<string, unknown>>("/platform/classify", { method: "POST", body: { text } });
+  }
+
+  async compliancePack(runIds: string[], auditCount?: number) {
+    return this.request<Record<string, unknown>>("/platform/compliance-pack", {
+      method: "POST",
+      body: { runIds, auditCount },
+    });
+  }
+
+  async getOrg() {
+    return this.request<{ units: Array<Record<string, unknown>>; invites: Array<Record<string, unknown>> }>(
+      "/platform/org",
+    );
+  }
+
+  async inviteOrg(invite: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/platform/org", { method: "POST", body: invite });
+  }
+
+  // ── Phase 9 resilience / observability APIs ────────────────────────────────
+  async regionFailover(regions?: Array<Record<string, unknown>>) {
+    return this.request<Record<string, unknown>>("/platform/regions/failover", {
+      method: "POST",
+      body: { regions: regions ?? [] },
+    });
+  }
+
+  async evaluateDR(policy: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/platform/dr/evaluate", {
+      method: "POST",
+      body: policy,
+    });
+  }
+
+  async sampleTrace(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/platform/traces/sample", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async getSynthetics() {
+    return this.request<Record<string, unknown>>("/platform/synthetics");
+  }
+
+  async upsertSynthetic(check: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/platform/synthetics", {
+      method: "POST",
+      body: check,
+    });
+  }
+
+  async analyzeCanary(snapshot: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/platform/canary/analyze", {
+      method: "POST",
+      body: snapshot,
+    });
+  }
+
+  async planCapacity(input: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/platform/capacity/plan", {
+      method: "POST",
+      body: input,
+    });
+  }
+
+  async exportBundle(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/platform/export-bundle", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async checkRollout(data: { feature: string; percent: number; userKey?: string }) {
+    return this.request<Record<string, unknown>>("/platform/rollout", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  // ── Phase 10 — OpenText EPE 25.3 parity ─────────────────────────────────────
+  async aviator(data: {
+    mode?: "script" | "analysis" | "chat";
+    prompt?: string;
+    context?: Record<string, unknown>;
+  }) {
+    return this.request<{
+      mode: string;
+      answer: string;
+      actions?: string[];
+      suggestions?: Array<Record<string, string>>;
+      protocol?: string;
+      summary?: string;
+      anomalies?: Array<Record<string, unknown>>;
+    }>("/aviator", { method: "POST", body: data });
+  }
+
+  async getSplunkMetrics(params?: { service?: string; metric?: string }) {
+    const sp = new URLSearchParams();
+    if (params?.service) sp.set("service", params.service);
+    if (params?.metric) sp.set("metric", params.metric);
+    const q = sp.toString();
+    return this.request<{ integration: string; metrics: Array<Record<string, unknown>> }>(
+      `/integrations/splunk${q ? `?${q}` : ""}`,
+    );
+  }
+
+  async ingestSplunkMetric(metric: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/integrations/splunk", {
+      method: "POST",
+      body: metric,
+    });
+  }
+
+  async getOTEL() {
+    return this.request<{ config: Record<string, unknown>; recent: Array<Record<string, unknown>> }>(
+      "/integrations/otel",
+    );
+  }
+
+  async configureOTEL(config: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/integrations/otel", {
+      method: "POST",
+      body: { action: "configure", config },
+    });
+  }
+
+  async exportOTELSpan(span: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/integrations/otel", {
+      method: "POST",
+      body: { action: "export", span },
+    });
+  }
+
+  async getRunRuntime(runId: string) {
+    return this.request<Record<string, unknown>>(`/runs/${runId}/runtime`);
+  }
+
+  async runRuntimeAction(
+    runId: string,
+    data: {
+      action: "ensure" | "add" | "stop" | "rendezvous";
+      vusers?: number;
+      targetVUs?: number;
+      rendezvousName?: string;
+      rendezvousPolicy?: string;
+      rendezvousPercent?: number;
+    },
+  ) {
+    return this.request<Record<string, unknown>>(`/runs/${runId}/runtime`, {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async getAWSTemplates() {
+    return this.request<Array<Record<string, unknown>>>("/cloud/aws-templates");
+  }
+
+  async upsertAWSTemplate(template: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/cloud/aws-templates", {
+      method: "POST",
+      body: template,
+    });
+  }
+
+  async getPasswordPolicy() {
+    return this.request<{
+      policy: Record<string, unknown>;
+      mustChange: boolean;
+      userId: string;
+    }>("/security/password-policy");
+  }
+
+  async updatePasswordPolicy(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/security/password-policy", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async resolveVaultScript(script: string, put?: Record<string, string>) {
+    return this.request<{ resolved: string; missing: string[] }>("/integrations/vault/resolve", {
+      method: "POST",
+      body: { script, put },
+    });
+  }
+
+  async getProtocols() {
+    return this.request<{
+      protocols: Array<Record<string, unknown>>;
+      llmProfile: Record<string, unknown>;
+    }>("/protocols");
+  }
+
+  async getEPE253Features() {
+    return this.request<{
+      release: string;
+      video: string;
+      features: Array<{ feature: string; api: string }>;
+      phases: Array<{ id: string; name: string }>;
+      count: number;
+    }>("/platform/epe-25.3");
+  }
+
+  // ── Phase 11–13 SaaS / CI / edge ────────────────────────────────────────────
+  async getTenants() {
+    return this.request<Array<Record<string, unknown>>>("/tenants");
+  }
+
+  async upsertTenant(tenant: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/tenants", { method: "POST", body: tenant });
+  }
+
+  async validateLicense(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/license/validate", { method: "POST", body: data });
+  }
+
+  async getMarketplace(params?: { kind?: string; tag?: string }) {
+    const sp = new URLSearchParams();
+    if (params?.kind) sp.set("kind", params.kind);
+    if (params?.tag) sp.set("tag", params.tag);
+    const q = sp.toString();
+    return this.request<Array<Record<string, unknown>>>(`/marketplace${q ? `?${q}` : ""}`);
+  }
+
+  async marketplaceAction(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/marketplace", { method: "POST", body: data });
+  }
+
+  async getAPITiers(plan?: string) {
+    const q = plan ? `?plan=${encodeURIComponent(plan)}` : "";
+    return this.request<Record<string, unknown>>(`/api-tiers${q}`);
+  }
+
+  async qualityGate(data: { rules?: Array<Record<string, unknown>>; metrics: Record<string, number> }) {
+    return this.request<Record<string, unknown>>("/ci/quality-gate", { method: "POST", body: data });
+  }
+
+  async digitalTwin(input: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/capacity/digital-twin", {
+      method: "POST",
+      body: input,
+    });
+  }
+
+  async getChaosScenarios() {
+    return this.request<Record<string, unknown>>("/chaos/scenarios");
+  }
+
+  async startChaos(data: { scenarioId: string; env: string }) {
+    return this.request<Record<string, unknown>>("/chaos/scenarios", { method: "POST", body: data });
+  }
+
+  async validateJourney(journey: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/journeys/validate", {
+      method: "POST",
+      body: journey,
+    });
+  }
+
+  async checkPerfBudget(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/ci/perf-budget", { method: "POST", body: data });
+  }
+
+  async getEdgeLocations() {
+    return this.request<{ edges: Array<Record<string, unknown>>; mobile: Array<Record<string, unknown>> }>(
+      "/edge/locations",
+    );
+  }
+
+  async estimateFinOps(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/finops/estimate", { method: "POST", body: data });
+  }
+
+  async getConnectors(category?: string) {
+    const q = category ? `?category=${encodeURIComponent(category)}` : "";
+    return this.request<Array<Record<string, unknown>>>(`/connectors${q}`);
+  }
+
+  async connectorAction(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/connectors", { method: "POST", body: data });
+  }
 }
 
 export const apiClient = new APIClient();

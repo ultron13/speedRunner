@@ -15,7 +15,7 @@ if ! minikube status | grep -q "Running"; then
     exit 1
 fi
 
-# 1. Build images
+# 1. Build images into minikube's Docker daemon
 echo ""
 echo "[1/3] Building container images..."
 eval $(minikube docker-env)
@@ -26,10 +26,19 @@ docker build -t speedrunner-backend:latest -f backend/Dockerfile backend/ || {
     echo "  WARNING: Backend build failed, using existing image"
 }
 
+echo "  Building frontend (Next.js)..."
+docker build -t speedrunner-frontend:latest -f Dockerfile . || {
+    echo "  WARNING: Frontend build failed, using existing image"
+}
+
 echo "  Building JMeter image..."
 docker build -t speedrunner/jmeter:latest -f k8s/jmeter/jmeter-image/Dockerfile k8s/jmeter/jmeter-image/ || {
     echo "  WARNING: JMeter build failed, using existing image"
 }
+
+# Ensure namespace exists
+kubectl get ns "$NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$NAMESPACE"
+kubectl get ns marathonrunner-execution >/dev/null 2>&1 || kubectl create namespace marathonrunner-execution
 
 # 2. Install/upgrade Helm chart
 echo ""
@@ -39,9 +48,18 @@ helm upgrade --install speedrunner "$PROJECT_ROOT/helm/speedrunner" \
     -f "$PROJECT_ROOT/k8s/local-values.yaml" \
     --set image.repository=speedrunner-frontend \
     --set image.tag=latest \
-    --wait --timeout 5m || {
+    --set image.pullPolicy=IfNotPresent \
+    --set backend.image.repository=speedrunner-backend \
+    --set backend.image.tag=latest \
+    --wait --timeout 10m || {
     echo "  WARNING: Helm install had issues, checking pods..."
 }
+
+# Force rollout so new images are picked up even if tag is :latest
+kubectl rollout restart deployment/speedrunner -n "$NAMESPACE" 2>/dev/null || true
+kubectl rollout restart deployment/speedrunner-backend -n "$NAMESPACE" 2>/dev/null || true
+kubectl rollout status deployment/speedrunner -n "$NAMESPACE" --timeout=5m 2>/dev/null || true
+kubectl rollout status deployment/speedrunner-backend -n "$NAMESPACE" --timeout=3m 2>/dev/null || true
 
 # 3. Verify
 echo ""

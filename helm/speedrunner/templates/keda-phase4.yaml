@@ -1,4 +1,4 @@
-{{- if .Values.keda.enabled }}
+{{- if and .Values.keda .Values.keda.enabled }}
 # Phase 4.3 — KEDA ScaledObjects for control plane workers
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject

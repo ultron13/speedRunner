@@ -12,6 +12,28 @@ type Config struct {
 	JWT      JWTConfig
 	K8s      K8sConfig
 	Engine   EngineConfig
+	OIDC     OIDCConfig
+	Jira     JiraConfig
+	SCIM     SCIMConfig
+}
+
+type OIDCConfig struct {
+	Issuer       string
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	DemoMode     bool
+}
+
+type JiraConfig struct {
+	BaseURL  string
+	Email    string
+	APIToken string
+	DemoMode bool
+}
+
+type SCIMConfig struct {
+	Token string
 }
 
 type ServerConfig struct {
@@ -74,6 +96,23 @@ func Load() *Config {
 			K6Image:     getEnv("K6_IMAGE", "grafana/k6:latest"),
 			DefaultVUs:  getEnvInt("DEFAULT_VUS", 10),
 			MaxVUs:      getEnvInt("MAX_VUS", 1000),
+		},
+		OIDC: OIDCConfig{
+			Issuer:       getEnv("OIDC_ISSUER", ""),
+			ClientID:     getEnv("OIDC_CLIENT_ID", ""),
+			ClientSecret: getEnv("OIDC_CLIENT_SECRET", ""),
+			RedirectURL:  getEnv("OIDC_REDIRECT_URL", "http://localhost:8080/api/auth/oidc/callback"),
+			// Default demo mode when no issuer so local UI can exercise the flow.
+			DemoMode: getEnv("OIDC_DEMO_MODE", "") == "true" || getEnv("OIDC_ISSUER", "") == "",
+		},
+		Jira: JiraConfig{
+			BaseURL:  getEnv("JIRA_BASE_URL", ""),
+			Email:    getEnv("JIRA_EMAIL", ""),
+			APIToken: getEnv("JIRA_API_TOKEN", ""),
+			DemoMode: getEnv("JIRA_DEMO_MODE", "") == "true" || getEnv("JIRA_API_TOKEN", "") == "",
+		},
+		SCIM: SCIMConfig{
+			Token: getEnv("SCIM_TOKEN", "speedrunner-scim-dev-token"),
 		},
 	}
 }

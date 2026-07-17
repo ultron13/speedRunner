@@ -13,6 +13,7 @@ import {
   Server,
   Shield,
   FlaskConical,
+  Sparkles,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ const nav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/tests", label: "Tests", icon: FlaskConical },
   { href: "/runs", label: "Runs", icon: Activity },
+  { href: "/aviator", label: "Aviator", icon: Sparkles },
   { href: "/schedules", label: "Schedules", icon: Calendar },
   { href: "/sla", label: "SLA", icon: Shield },
   { href: "/pools", label: "LG Pools", icon: Server },
@@ -48,6 +50,13 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
+      {/* Accessibility: skip link (EPE 25.3 / VPAT-oriented keyboard access) */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-sky-600 focus:px-3 focus:py-2 focus:text-sm focus:text-white"
+      >
+        Skip to main content
+      </a>
       <Header />
       <div className="mx-auto flex max-w-[1440px] gap-0 lg:gap-6 px-0 sm:px-4 lg:px-8">
         {/* Sidebar */}
@@ -91,7 +100,11 @@ export function AppShell({
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 space-y-6 px-4 py-6 sm:px-2 lg:px-0">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="min-w-0 flex-1 space-y-6 px-4 py-6 sm:px-2 lg:px-0 outline-none"
+        >
           {(title || subtitle) && (
             <div>
               {subtitle && (

@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/belo/speedrunner/backend/internal/ai"
+	"github.com/belo/speedrunner/backend/internal/auth"
 	"github.com/belo/speedrunner/backend/internal/chatops"
 	"github.com/belo/speedrunner/backend/internal/config"
 	"github.com/belo/speedrunner/backend/internal/cost"
@@ -23,12 +24,14 @@ import (
 	"github.com/belo/speedrunner/backend/internal/enterprise"
 	"github.com/belo/speedrunner/backend/internal/impact"
 	"github.com/belo/speedrunner/backend/internal/integrations"
+	"github.com/belo/speedrunner/backend/internal/integrations/jira"
 	k8sclient "github.com/belo/speedrunner/backend/internal/k8s"
 	"github.com/belo/speedrunner/backend/internal/operator"
 	"github.com/belo/speedrunner/backend/internal/platform"
 	"github.com/belo/speedrunner/backend/internal/policy"
 	redisclient "github.com/belo/speedrunner/backend/internal/redis"
 	"github.com/belo/speedrunner/backend/internal/region"
+	"github.com/belo/speedrunner/backend/internal/scim"
 	"github.com/belo/speedrunner/backend/internal/testdata"
 	"github.com/belo/speedrunner/backend/internal/telemetry"
 )
@@ -72,8 +75,38 @@ type Server struct {
 	Notifications *platform.NotificationBus
 	Artifacts     *platform.ArtifactStore
 	Limiter       *platform.RateLimiter
-	httpSrv       *http.Server
-	cancelOps     context.CancelFunc
+	// Phase 8 advanced ops
+	Outbox      *platform.Outbox
+	Idempotency *platform.IdempotencyStore
+	SoftDelete  *platform.SoftDeleter
+	Circuit     *platform.CircuitBreaker
+	FairQueue   *platform.FairQueue
+	UserPrefs   *platform.UserPrefsStore
+	Org         *platform.OrgStore
+	// Phase 9 resilience / observability
+	Synthetics *platform.SyntheticStore
+	// Phase 10 — EPE 25.3 parity
+	Splunk         *platform.SplunkStore
+	OTEL           *platform.OTELExporter
+	Runtime        *platform.RuntimeController
+	AWSTemplates   *platform.AWSTemplateStore
+	PasswordForce  *platform.PasswordForceStore
+	Vault          *platform.VaultStore
+	PasswordPolicy platform.PasswordPolicy
+	// Phase 11–13 SaaS / CI / edge
+	Tenants     *platform.TenantStore
+	Marketplace *platform.Marketplace
+	SCIM        *platform.SCIMStore
+	Meter       *platform.MeterStore
+	ChaosRuns   *platform.ChaosStore
+	Connectors  *platform.ConnectorHub
+	Deliveries  *platform.DeliveryLedger
+	// Real adapters
+	OIDC      *auth.OIDCProvider
+	Jira      *jira.Client
+	SCIMUsers *scim.Store
+	httpSrv   *http.Server
+	cancelOps context.CancelFunc
 }
 
 type Deps struct {
@@ -105,9 +138,49 @@ func New(deps Deps) *Server {
 		Notifications: platform.NewNotificationBus(),
 		Artifacts:     platform.NewArtifactStore(),
 		Limiter:       platform.NewRateLimiter(50, 100),
+		Outbox:        platform.NewOutbox(),
+		Idempotency:   platform.NewIdempotencyStore(24 * time.Hour),
+		SoftDelete:    platform.NewSoftDeleter(),
+		Circuit:       platform.NewCircuitBreaker(5, 30*time.Second),
+		FairQueue:     platform.NewFairQueue(),
+		UserPrefs:     platform.NewUserPrefsStore(),
+		Org:           platform.NewOrgStore(),
+		Synthetics:     platform.NewSyntheticStore(),
+		Splunk:         platform.NewSplunkStore(),
+		OTEL:           platform.NewOTELExporter(),
+		Runtime:        platform.NewRuntimeController(),
+		AWSTemplates:   platform.NewAWSTemplateStore(),
+		PasswordForce:  platform.NewPasswordForceStore(),
+		Vault:          platform.NewVaultStore(),
+		PasswordPolicy: platform.DefaultPasswordPolicy(),
+		Tenants:        platform.NewTenantStore(),
+		Marketplace:    platform.NewMarketplace(),
+		SCIM:           platform.NewSCIMStore(),
+		Meter:          platform.NewMeterStore(),
+		ChaosRuns:      platform.NewChaosStore(),
+		Connectors:     platform.NewConnectorHub(),
+		Deliveries:     platform.NewDeliveryLedger(),
+		SCIMUsers:      scim.NewStore("/api/scim/v2"),
 	}
 	if deps.Config != nil {
 		s.Policy = policy.DefaultEnterpriseEngine(deps.Config.Engine.MaxVUs)
+		s.OIDC = auth.NewOIDCProvider(auth.OIDCConfig{
+			Issuer:       deps.Config.OIDC.Issuer,
+			ClientID:     deps.Config.OIDC.ClientID,
+			ClientSecret: deps.Config.OIDC.ClientSecret,
+			RedirectURL:  deps.Config.OIDC.RedirectURL,
+			DemoMode:     deps.Config.OIDC.DemoMode,
+			Scopes:       []string{"openid", "profile", "email"},
+		})
+		s.Jira = jira.New(jira.Config{
+			BaseURL:  deps.Config.Jira.BaseURL,
+			Email:    deps.Config.Jira.Email,
+			APIToken: deps.Config.Jira.APIToken,
+			DemoMode: deps.Config.Jira.DemoMode,
+		})
+	} else {
+		s.OIDC = auth.NewOIDCProvider(auth.OIDCConfig{DemoMode: true, ClientID: "demo", RedirectURL: "http://localhost:8080/api/auth/oidc/callback"})
+		s.Jira = jira.New(jira.Config{DemoMode: true})
 	}
 	if deps.DB != nil {
 		pool := deps.DB.Pool
@@ -214,6 +287,22 @@ func (s *Server) setupRoutes() {
 			r.Post("/login", s.loginHandler)
 			r.Post("/register", s.registerHandler)
 			r.With(s.authMiddleware).Get("/me", s.meHandler)
+			// OIDC (public)
+			r.Get("/oidc/status", s.oidcStatusHandler)
+			r.Get("/oidc/login", s.oidcLoginHandler)
+			r.Get("/oidc/callback", s.oidcCallbackHandler)
+		})
+
+		// SCIM 2.0 (Bearer JWT admin or SCIM_TOKEN) — outside JWT middleware group
+		r.Route("/scim/v2", func(r chi.Router) {
+			r.Use(s.scimAuth)
+			r.Get("/ServiceProviderConfig", s.scimServiceProviderConfig)
+			r.Get("/Users", s.scimListUsers)
+			r.Post("/Users", s.scimCreateUser)
+			r.Get("/Users/{id}", s.scimGetUser)
+			r.Put("/Users/{id}", s.scimReplaceUser)
+			r.Patch("/Users/{id}", s.scimPatchUser)
+			r.Delete("/Users/{id}", s.scimDeleteUser)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -391,6 +480,100 @@ func (s *Server) setupRoutes() {
 			r.With(s.requirePermission("run:read")).Post("/release-board", s.releaseBoardHandler)
 			r.With(s.requirePermission("project:read")).Get("/health-matrix", s.healthMatrixHandler)
 			r.With(s.requirePermission("project:read")).Get("/platform/phases", s.platformPhasesHandler)
+
+			// Phase 8.1–8.50 advanced enterprise operations APIs
+			r.With(s.requirePermission("admin:read")).Get("/platform/outbox", s.outboxHandler)
+			r.With(s.requirePermission("admin:write")).Post("/platform/outbox", s.outboxHandler)
+			r.With(s.requirePermission("admin:read")).Post("/platform/webhooks/sign", s.webhookSignHandler)
+			r.With(s.requirePermission("admin:write")).Post("/platform/idempotency", s.idempotencyHandler)
+			r.With(s.requirePermission("admin:write")).Post("/platform/soft-delete", s.softDeleteHandler)
+			r.With(s.requirePermission("run:read")).Post("/alerts/evaluate", s.alertEvaluateHandler)
+			r.With(s.requirePermission("sla:read")).Post("/slo/status", s.sloStatusHandler)
+			r.With(s.requirePermission("admin:read")).Post("/platform/circuit", s.circuitBreakerHandler)
+			r.With(s.requirePermission("run:execute")).Post("/platform/watchdog", s.watchdogHandler)
+			r.With(s.requirePermission("run:read")).Get("/platform/queue", s.fairQueueHandler)
+			r.With(s.requirePermission("run:execute")).Post("/platform/queue", s.fairQueueHandler)
+			r.With(s.requirePermission("test:read")).Post("/platform/ramp", s.progressiveRampHandler)
+			r.With(s.requirePermission("run:read")).Post("/platform/budget", s.budgetStatusHandler)
+			r.With(s.requirePermission("project:read")).Get("/platform/prefs", s.userPrefsHandler)
+			r.With(s.requirePermission("project:write")).Post("/platform/prefs", s.userPrefsHandler)
+			r.With(s.requirePermission("admin:read")).Post("/platform/classify", s.classifyDataHandler)
+			r.With(s.requirePermission("audit:read")).Post("/platform/compliance-pack", s.compliancePackHandler)
+			r.With(s.requirePermission("admin:read")).Get("/platform/org", s.orgHandler)
+			r.With(s.requirePermission("admin:write")).Post("/platform/org", s.orgHandler)
+			r.With(s.requirePermission("project:read")).Get("/platform/phases/8", s.platformPhases8Handler)
+			r.With(s.requirePermission("project:read")).Get("/platform/phases/9", s.platformPhases9Handler)
+			r.With(s.requirePermission("project:read")).Get("/platform/phases/10", s.platformPhases10Handler)
+			r.With(s.requirePermission("project:read")).Get("/platform/phases/11", s.platformPhases11Handler)
+			r.With(s.requirePermission("project:read")).Get("/platform/phases/12", s.platformPhases12Handler)
+			r.With(s.requirePermission("project:read")).Get("/platform/phases/13", s.platformPhases13Handler)
+			r.With(s.requirePermission("project:read")).Get("/platform/phases/all", s.platformAllPhasesHandler)
+
+			// Phase 11 — multi-tenant SaaS, marketplace, licensing
+			r.With(s.requirePermission("admin:read")).Get("/tenants", s.tenantsHandler)
+			r.With(s.requirePermission("admin:write")).Post("/tenants", s.tenantsHandler)
+			r.With(s.requirePermission("admin:read")).Post("/license/validate", s.licenseValidateHandler)
+			r.With(s.requirePermission("test:read")).Get("/marketplace", s.marketplaceHandler)
+			r.With(s.requirePermission("test:write")).Post("/marketplace", s.marketplaceHandler)
+			r.With(s.requirePermission("admin:read")).Get("/api-tiers", s.apiTiersHandler)
+			r.With(s.requirePermission("admin:read")).Get("/sso/config", s.ssoConfigHandler)
+			r.With(s.requirePermission("admin:write")).Post("/sso/config", s.ssoConfigHandler)
+			r.With(s.requirePermission("admin:read")).Get("/scim/users", s.scimUsersHandler)
+			r.With(s.requirePermission("admin:write")).Post("/scim/users", s.scimUsersHandler)
+			r.With(s.requirePermission("admin:read")).Get("/usage", s.usageMeterHandler)
+			r.With(s.requirePermission("admin:write")).Post("/usage", s.usageMeterHandler)
+
+			// Phase 12 — CI gates, digital twin, chaos, journeys, budgets
+			r.With(s.requirePermission("run:read")).Post("/ci/quality-gate", s.qualityGateHandler)
+			r.With(s.requirePermission("run:read")).Post("/capacity/digital-twin", s.digitalTwinHandler)
+			r.With(s.requirePermission("test:read")).Get("/chaos/scenarios", s.chaosAdvancedHandler)
+			r.With(s.requirePermission("test:execute")).Post("/chaos/scenarios", s.chaosAdvancedHandler)
+			r.With(s.requirePermission("test:read")).Post("/journeys/validate", s.browserJourneyHandler)
+			r.With(s.requirePermission("run:read")).Post("/ci/perf-budget", s.perfBudgetHandler)
+
+			// Phase 13 — edge/mobile, FinOps carbon, connectors
+			r.With(s.requirePermission("project:read")).Get("/edge/locations", s.edgeLocationsHandler)
+			r.With(s.requirePermission("test:read")).Post("/edge/mobile-network", s.mobileNetworkHandler)
+			r.With(s.requirePermission("run:read")).Post("/finops/estimate", s.finopsHandler)
+			r.With(s.requirePermission("admin:read")).Get("/connectors", s.connectorsHandler)
+			r.With(s.requirePermission("admin:write")).Post("/connectors", s.connectorsHandler)
+			r.With(s.requirePermission("admin:read")).Get("/webhooks/deliveries", s.deliveryLedgerHandler)
+			r.With(s.requirePermission("admin:write")).Post("/webhooks/deliveries", s.deliveryLedgerHandler)
+
+			// Real Jira adapter
+			r.With(s.requirePermission("project:read")).Get("/integrations/jira/status", s.jiraStatusHandler)
+			r.With(s.requirePermission("project:write")).Post("/integrations/jira/issues", s.jiraCreateIssueHandler)
+			r.With(s.requirePermission("project:read")).Get("/integrations/jira/issues/{key}", s.jiraGetIssueHandler)
+			r.With(s.requirePermission("project:read")).Post("/integrations/jira/search", s.jiraSearchHandler)
+			r.With(s.requirePermission("run:execute")).Post("/integrations/jira/defect-from-run", s.jiraDefectFromRunHandler)
+
+			// Phase 10 — OpenText EPE CE 25.3 parity (video features)
+			r.With(s.requirePermission("test:read")).Post("/aviator", s.aviatorHandler)
+			r.With(s.requirePermission("run:read")).Get("/integrations/splunk", s.splunkHandler)
+			r.With(s.requirePermission("run:execute")).Post("/integrations/splunk", s.splunkHandler)
+			r.With(s.requirePermission("admin:read")).Get("/integrations/otel", s.otelHandler)
+			r.With(s.requirePermission("admin:write")).Post("/integrations/otel", s.otelHandler)
+			r.With(s.requirePermission("run:read")).Get("/runs/{id}/runtime", s.runtimeRunHandler)
+			r.With(s.requirePermission("run:execute")).Post("/runs/{id}/runtime", s.runtimeRunHandler)
+			r.With(s.requirePermission("project:read")).Get("/cloud/aws-templates", s.awsTemplatesHandler)
+			r.With(s.requirePermission("project:write")).Post("/cloud/aws-templates", s.awsTemplatesHandler)
+			r.With(s.requirePermission("admin:read")).Get("/security/password-policy", s.passwordPolicyHandler)
+			r.With(s.requirePermission("admin:write")).Post("/security/password-policy", s.passwordPolicyHandler)
+			r.With(s.requirePermission("test:write")).Post("/integrations/vault/resolve", s.vaultResolveHandler)
+			r.With(s.requirePermission("test:read")).Get("/protocols", s.protocolsHandler)
+			r.With(s.requirePermission("test:read")).Post("/protocols", s.protocolsHandler)
+			r.With(s.requirePermission("project:read")).Get("/platform/epe-25.3", s.epe253FeaturesHandler)
+
+			// Phase 9.1–9.50 resilience, DR, observability, capacity
+			r.With(s.requirePermission("project:read")).Post("/platform/regions/failover", s.regionFailoverHandler)
+			r.With(s.requirePermission("admin:read")).Post("/platform/dr/evaluate", s.drEvaluateHandler)
+			r.With(s.requirePermission("run:read")).Post("/platform/traces/sample", s.traceSampleHandler)
+			r.With(s.requirePermission("project:read")).Get("/platform/synthetics", s.syntheticsHandler)
+			r.With(s.requirePermission("project:write")).Post("/platform/synthetics", s.syntheticsHandler)
+			r.With(s.requirePermission("run:read")).Post("/platform/canary/analyze", s.canaryAnalyzeHandler)
+			r.With(s.requirePermission("admin:read")).Post("/platform/capacity/plan", s.capacityPlanHandler)
+			r.With(s.requirePermission("admin:read")).Post("/platform/export-bundle", s.exportBundleHandler)
+			r.With(s.requirePermission("project:read")).Post("/platform/rollout", s.rolloutHandler)
 
 			r.Route("/audit", func(r chi.Router) {
 				r.With(s.requirePermission("audit:read")).Get("/", s.listAuditLogsHandler)

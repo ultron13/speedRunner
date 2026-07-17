@@ -309,9 +309,53 @@ func (s *Server) healthMatrixHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) platformPhasesHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"wave":   "7",
-		"count":  50,
-		"phases": platform.PhaseCatalog(),
-	})
+	wave := r.URL.Query().Get("wave")
+	switch wave {
+	case "8":
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"wave":   "8",
+			"count":  50,
+			"phases": platform.Phase8Catalog(),
+		})
+		return
+	case "9":
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"wave":   "9",
+			"count":  50,
+			"phases": platform.Phase9Catalog(),
+		})
+		return
+	case "10":
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"wave":   "10",
+			"count":  50,
+			"phases": platform.Phase10Catalog(),
+		})
+		return
+	case "11":
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"wave": "11", "count": 50, "phases": platform.Phase11Catalog(),
+		})
+		return
+	case "12":
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"wave": "12", "count": 50, "phases": platform.Phase12Catalog(),
+		})
+		return
+	case "13":
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"wave": "13", "count": 50, "phases": platform.Phase13Catalog(),
+		})
+		return
+	case "all":
+		s.platformAllPhasesHandler(w, r)
+		return
+	default:
+		// Default remains Phase 7 catalog for backward compatibility.
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"wave":   "7",
+			"count":  50,
+			"phases": platform.PhaseCatalog(),
+		})
+	}
 }

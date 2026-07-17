@@ -38,6 +38,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=8787
+# Bind on all interfaces so kubelet probes and ClusterIP work (not only pod hostname).
+ENV HOSTNAME=0.0.0.0
 
 # Copy production dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules

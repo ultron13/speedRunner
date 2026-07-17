@@ -8,13 +8,14 @@ import {
   BarChart3,
   FileText,
   Server,
+  Sparkles,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Home", icon: LayoutDashboard },
   { href: "/tests", label: "Tests", icon: FlaskConical },
+  { href: "/aviator", label: "Aviator", icon: Sparkles },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/pools", label: "Pools", icon: Server },
   { href: "/reports", label: "Reports", icon: FileText },
 ];
 

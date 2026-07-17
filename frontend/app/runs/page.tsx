@@ -3,6 +3,7 @@
 import { AuthGate } from "@/components/layout/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
 import { RecentRunsTable } from "@/components/tests/RecentRunsTable";
+import { RuntimeControls } from "@/components/tests/RuntimeControls";
 import { useApiMetrics } from "@/hooks/useApiMetrics";
 import { useSimulation } from "@/hooks/useSimulation";
 import { useWebSocket } from "@/hooks/useWebSocket";
@@ -27,8 +28,9 @@ export default function RunsPage() {
             <p className="text-sm text-slate-600 dark:text-slate-400">
               {runs.length} run{runs.length === 1 ? "" : "s"} in history. Generate
               an engineering report from any completed run via the API or Reports
-              page.
+              page. Use runtime activity to add/stop VUsers mid-run (EPE 25.3).
             </p>
+            <RuntimeControls />
             <RecentRunsTable />
           </>
         )}

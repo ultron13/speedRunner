@@ -7,6 +7,44 @@ autoscaling:
 podDisruptionBudget:
   enabled: false
 
+# Next.js needs writable temp dirs; relax read-only FS for local cluster
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Probes against the Next standalone server on :8787
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+startupProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  failureThreshold: 30
+  periodSeconds: 5
+  timeoutSeconds: 5
+
 ingress:
   enabled: true
   className: nginx
@@ -23,17 +61,29 @@ ingress:
 resources:
   requests:
     cpu: 100m
-    memory: 128Mi
+    memory: 256Mi
   limits:
-    cpu: 500m
-    memory: 512Mi
+    cpu: 1000m
+    memory: 1Gi
+
+image:
+  repository: speedrunner-frontend
+  tag: latest
+  pullPolicy: IfNotPresent
 
 env:
   NODE_ENV: production
   LOG_LEVEL: debug
+  HOSTNAME: "0.0.0.0"
   K8S_IN_CLUSTER: "false"
   K8S_EXECUTION_NS: marathonrunner-execution
   K8S_SYSTEM_NS: marathonrunner-system
+  # Browser still needs host-reachable API; use port-forwarded backend or ingress path.
+  NEXT_PUBLIC_API_URL: ""
+
+# Disable optional monitoring ConfigMap unless values define monitoring.enabled
+monitoring:
+  enabled: false
 
 # Backend
 backend:
