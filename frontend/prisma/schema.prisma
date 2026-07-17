@@ -4,6 +4,8 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Prisma 6 requires url here for `prisma generate` (Docker/CI with npm ci).
+  url      = env("DATABASE_URL")
 }
 
 // ─── Authentication & RBAC ───────────────────────────────────────────────────

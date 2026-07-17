@@ -58,6 +58,12 @@ const sections = [
     desc: "EPE 25.3 AI, Splunk/OTEL, live VUser controls",
     icon: Cloud,
   },
+  {
+    href: "/admin/enterprise",
+    title: "Enterprise 21–41",
+    desc: "Portfolio, correlation, WAN, quotas, residency, self-health",
+    icon: Building2,
+  },
 ];
 
 export default function AdminHubPage() {

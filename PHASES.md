@@ -1,6 +1,6 @@
 # SpeedRunner Implementation Phases
 
-Mapped from `Implementation/32-Full-Project-Implementation-Backlog.md` plus production waves **7.1–14.20** (370 catalog items).
+Mapped from `Implementation/32-Full-Project-Implementation-Backlog.md` plus production waves **7.1–14.20** and enterprise roadmap **21–41** (**391** catalog items).
 
 ## Completed waves
 
@@ -19,6 +19,7 @@ Mapped from `Implementation/32-Full-Project-Implementation-Backlog.md` plus prod
 | **12.1–12.50** | CI quality gates, digital twin, chaos, journeys | **Done** |
 | **13.1–13.50** | Edge/mobile, FinOps carbon, partner connectors | **Done** |
 | **14.1–14.20** | Enterprise extensions (templates, freeze, DLQ, …) | **Done** |
+| **21–41** | Full enterprise depth (portfolio → self-health) | **Done** |
 
 ## Phase 11 API map
 
@@ -70,10 +71,35 @@ Mapped from `Implementation/32-Full-Project-Implementation-Backlog.md` plus prod
 | `POST /api/security/secret-scan` | Pre-run secret scan |
 | `POST /api/security/ip-allowlist` | IP allowlist check |
 
+## Phases 21–41 (enterprise depth)
+
+| ID | Capability | API |
+| --- | --- | --- |
+| 21 | Portfolio dashboard | `POST /api/portfolio/summary` |
+| 22 | Asset versioning | `GET/POST /api/assets/versions` |
+| 23 | Script branch merge check | `POST /api/scripts/branch/merge-check` |
+| 24 | Parameterization wizard | `POST /api/scripts/parameters/suggest` |
+| 25 | Correlation studio | `POST /api/scripts/correlation/detect` |
+| 26–28 | WAN + think-time profiles | `GET /api/network/profiles` |
+| 29 | LG auto-heal | `POST /api/generators/auto-heal` |
+| 30 | Distributed shard aggregation | `POST /api/results/aggregate-shards` |
+| 31 | Multi-run comparison matrix | `POST /api/runs/comparison-matrix` |
+| 32 | Executive board pack | `POST /api/reports/executive-pack` |
+| 33–34 | SLA incident + escalation | `POST /api/incidents/from-sla` |
+| 35 | Quota soft/hard enforce | `POST /api/quotas/enforce` |
+| 36 | Blue-green env switch | `POST /api/env/blue-green` |
+| 37 | Data residency hard gate | `POST /api/residency/gate` |
+| 38 | Testing calendar conflicts | `POST /api/calendar/conflicts` |
+| 39 | Flaky run detector | `POST /api/runs/flaky` |
+| 40 | Regression baseline z-score | `POST /api/runs/regression-baseline` |
+| 41 | Platform self-health | `GET/POST /api/platform/self-health` |
+
+UI: `/admin/enterprise`
+
 ## Phase catalogs
 
-- `GET /api/platform/phases?wave=7\|8\|…\|14\|all`
-- `GET /api/platform/phases/{7..14}` and `/all` → **370** items
+- `GET /api/platform/phases?wave=7\|…\|14\|21-41\|all`
+- `/all` → **391** items
 
 ### Domain modules
 

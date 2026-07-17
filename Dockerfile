@@ -1,5 +1,6 @@
 # Stage 1: Dependencies (production only for runner)
-FROM node:20-alpine AS deps
+# Node 22 LTS — Node 20 is deprecated on GitHub Actions runners (2025-09).
+FROM node:22-alpine AS deps
 WORKDIR /app
 
 # Copy package files
@@ -9,7 +10,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --omit=dev
 
 # Stage 2: Build (needs devDependencies for Tailwind, PostCSS, etc.)
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Copy package files
@@ -21,19 +22,21 @@ RUN npm ci
 # Copy source code
 COPY frontend/ ./
 
-# Set DATABASE_URL for Prisma build
+# Set DATABASE_URL for Prisma schema env("DATABASE_URL") during generate
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 ENV NEXT_TELEMETRY_DISABLED=1
+# Ensure Prisma uses the schema URL path (no prisma.config.ts required in image)
+ENV PRISMA_GENERATE_SKIP_AUTOINSTALL=true
 
-# Generate Prisma client
-RUN npx prisma generate
+# Generate Prisma client (schema.prisma datasource url = env("DATABASE_URL"))
+RUN npx prisma generate --schema=prisma/schema.prisma
 
 # Build the application (skip type checking to avoid Prisma build issues)
 ENV NEXT_SKIP_TYPE_CHECK=true
 RUN npm run build
 
 # Stage 3: Production
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

@@ -709,8 +709,8 @@ class APIClient {
     return this.request<Record<string, unknown>>("/health-matrix");
   }
 
-  async getPlatformPhases(wave?: "7" | "8" | "all") {
-    const q = wave ? `?wave=${wave}` : "";
+  async getPlatformPhases(wave?: string) {
+    const q = wave ? `?wave=${encodeURIComponent(wave)}` : "";
     return this.request<{
       wave?: string;
       waves?: string[];
@@ -1160,6 +1160,96 @@ class APIClient {
       method: "POST",
       body: data,
     });
+  }
+
+  // ── Enterprise phases 21–41 ────────────────────────────────────────────────
+  async portfolioSummary(projects?: Array<Record<string, unknown>>) {
+    return this.request<Record<string, unknown>>("/portfolio/summary", {
+      method: "POST",
+      body: { projects: projects ?? [] },
+    });
+  }
+
+  async commitAssetVersion(data: {
+    assetId: string;
+    message?: string;
+    content?: string;
+    author?: string;
+  }) {
+    return this.request<Record<string, unknown>>("/assets/versions", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async suggestParameters(data: { url: string; body?: string }) {
+    return this.request<Record<string, unknown>>("/scripts/parameters/suggest", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async detectCorrelations(data: { responseBody: string }) {
+    return this.request<Record<string, unknown>>("/scripts/correlation/detect", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async getNetworkProfiles() {
+    return this.request<Record<string, unknown>>("/network/profiles");
+  }
+
+  async autoHealGenerator(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/generators/auto-heal", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async aggregateShards(data: { shards: Array<Record<string, unknown>> }) {
+    return this.request<Record<string, unknown>>("/results/aggregate-shards", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async comparisonMatrix(data: { rows: Array<Record<string, unknown>> }) {
+    return this.request<Record<string, unknown>>("/runs/comparison-matrix", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async executivePack(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/reports/executive-pack", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async incidentFromSLA(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/incidents/from-sla", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async residencyGate(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>("/residency/gate", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async platformSelfHealth(components?: Array<Record<string, unknown>>) {
+    if (components) {
+      return this.request<Record<string, unknown>>("/platform/self-health", {
+        method: "POST",
+        body: { components },
+      });
+    }
+    return this.request<Record<string, unknown>>("/platform/self-health");
   }
 }
 

@@ -108,8 +108,10 @@ type Server struct {
 	// Phase 14
 	Annotations *platform.AnnotationStore
 	DeadLetters *platform.DeadLetterQueue
-	httpSrv     *http.Server
-	cancelOps   context.CancelFunc
+	// Phases 21–41
+	AssetVersions *platform.AssetVersionStore
+	httpSrv       *http.Server
+	cancelOps     context.CancelFunc
 }
 
 type Deps struct {
@@ -166,6 +168,7 @@ func New(deps Deps) *Server {
 		SCIMUsers:      scim.NewStore("/api/scim/v2"),
 		Annotations:    platform.NewAnnotationStore(),
 		DeadLetters:    platform.NewDeadLetterQueue(),
+		AssetVersions:  platform.NewAssetVersionStore(),
 	}
 	if deps.Config != nil {
 		s.Policy = policy.DefaultEnterpriseEngine(deps.Config.Engine.MaxVUs)
@@ -513,7 +516,31 @@ func (s *Server) setupRoutes() {
 			r.With(s.requirePermission("project:read")).Get("/platform/phases/12", s.platformPhases12Handler)
 			r.With(s.requirePermission("project:read")).Get("/platform/phases/13", s.platformPhases13Handler)
 			r.With(s.requirePermission("project:read")).Get("/platform/phases/14", s.platformPhases14Handler)
+			r.With(s.requirePermission("project:read")).Get("/platform/phases/21-41", s.platformPhases21to41Handler)
 			r.With(s.requirePermission("project:read")).Get("/platform/phases/all", s.platformAllPhasesHandler)
+
+			// Phases 21–41 enterprise depth APIs
+			r.With(s.requirePermission("project:read")).Post("/portfolio/summary", s.portfolioHandler)
+			r.With(s.requirePermission("test:read")).Get("/assets/versions", s.assetVersionsHandler)
+			r.With(s.requirePermission("test:write")).Post("/assets/versions", s.assetVersionsHandler)
+			r.With(s.requirePermission("test:write")).Post("/scripts/branch/merge-check", s.scriptBranchHandler)
+			r.With(s.requirePermission("test:read")).Post("/scripts/parameters/suggest", s.paramWizardHandler)
+			r.With(s.requirePermission("test:read")).Post("/scripts/correlation/detect", s.correlationStudioHandler)
+			r.With(s.requirePermission("test:read")).Get("/network/profiles", s.networkProfilesHandler)
+			r.With(s.requirePermission("test:read")).Post("/network/profiles/apply", s.networkProfilesHandler)
+			r.With(s.requirePermission("run:execute")).Post("/generators/auto-heal", s.autoHealHandler)
+			r.With(s.requirePermission("run:read")).Post("/results/aggregate-shards", s.aggregateShardsHandler)
+			r.With(s.requirePermission("run:read")).Post("/runs/comparison-matrix", s.comparisonMatrixHandler)
+			r.With(s.requirePermission("run:read")).Post("/reports/executive-pack", s.executivePackHandler)
+			r.With(s.requirePermission("run:execute")).Post("/incidents/from-sla", s.slaIncidentHandler)
+			r.With(s.requirePermission("project:read")).Post("/quotas/enforce", s.quotaCheckHandler)
+			r.With(s.requirePermission("project:write")).Post("/env/blue-green", s.blueGreenHandler)
+			r.With(s.requirePermission("project:read")).Post("/residency/gate", s.residencyGateHandler)
+			r.With(s.requirePermission("schedule:read")).Post("/calendar/conflicts", s.testingCalendarHandler)
+			r.With(s.requirePermission("run:read")).Post("/runs/flaky", s.flakyDetectorHandler)
+			r.With(s.requirePermission("run:read")).Post("/runs/regression-baseline", s.regressionBaselineHandler)
+			r.With(s.requirePermission("admin:read")).Get("/platform/self-health", s.platformSelfHealthHandler)
+			r.With(s.requirePermission("admin:read")).Post("/platform/self-health", s.platformSelfHealthHandler)
 
 			// Phase 14.1–14.20 enterprise extensions
 			r.With(s.requirePermission("test:read")).Get("/workspace/templates", s.workspaceTemplatesHandler)
