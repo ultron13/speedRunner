@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -23,7 +24,9 @@ import (
 	"github.com/belo/speedrunner/backend/internal/engine/simulate"
 	"github.com/belo/speedrunner/backend/internal/integrations"
 	k8sclient "github.com/belo/speedrunner/backend/internal/k8s"
+	"github.com/belo/speedrunner/backend/internal/platform"
 	redisclient "github.com/belo/speedrunner/backend/internal/redis"
+	"github.com/belo/speedrunner/backend/internal/storage"
 	"github.com/belo/speedrunner/backend/internal/telemetry"
 )
 
@@ -37,10 +40,13 @@ type RunnerOrchestrator struct {
 	runs     *queries.RunQueries
 	tests    *queries.TestQueries
 	sla      *queries.SLAQueries
-	redis    *redisclient.RedisClient
-	webhooks *integrations.Dispatcher
-	mu       sync.Mutex
-	runMeta  map[string]runMeta
+	redis     *redisclient.RedisClient
+	webhooks  *integrations.Dispatcher
+	storage   storage.ObjectStorage
+	artifacts *queries.ArtifactQueries
+	artifactMeta *platform.ArtifactStore
+	mu        sync.Mutex
+	runMeta   map[string]runMeta
 }
 
 type runMeta struct {
@@ -61,8 +67,11 @@ type RunnerConfig struct {
 	Runs        *queries.RunQueries
 	Tests       *queries.TestQueries
 	SLA         *queries.SLAQueries
-	Redis       *redisclient.RedisClient
-	Webhooks    *integrations.Dispatcher
+	Redis        *redisclient.RedisClient
+	Webhooks     *integrations.Dispatcher
+	Storage      storage.ObjectStorage
+	Artifacts    *queries.ArtifactQueries
+	ArtifactMeta *platform.ArtifactStore
 }
 
 func NewRunnerOrchestrator(cfg RunnerConfig) *RunnerOrchestrator {
@@ -72,16 +81,19 @@ func NewRunnerOrchestrator(cfg RunnerConfig) *RunnerOrchestrator {
 	}
 
 	o := &RunnerOrchestrator{
-		mode:     mode,
-		runs:     cfg.Runs,
-		tests:    cfg.Tests,
-		sla:      cfg.SLA,
-		redis:    cfg.Redis,
-		webhooks: cfg.Webhooks,
-		k8s:      cfg.K8s,
-		runMeta:  make(map[string]runMeta),
-		registry: engine.NewRegistry(),
-		httpEng:  httpengine.New(),
+		mode:         mode,
+		runs:         cfg.Runs,
+		tests:        cfg.Tests,
+		sla:          cfg.SLA,
+		redis:        cfg.Redis,
+		webhooks:     cfg.Webhooks,
+		storage:      cfg.Storage,
+		artifacts:    cfg.Artifacts,
+		artifactMeta: cfg.ArtifactMeta,
+		k8s:          cfg.K8s,
+		runMeta:      make(map[string]runMeta),
+		registry:     engine.NewRegistry(),
+		httpEng:      httpengine.New(),
 	}
 	o.sim = simulate.New(o.onTick)
 	o.registry.Register(o.sim)
@@ -397,6 +409,11 @@ func (o *RunnerOrchestrator) Stop(ctx context.Context, runID, status string) err
 		o.evaluateSLA(ctx, runID, meta.projectID, snap)
 	}
 
+	// Persist run summary artifact (vertical slice: metrics → artifacts)
+	if ok {
+		o.persistRunArtifact(ctx, runID, meta, status, snap)
+	}
+
 	if o.webhooks != nil {
 		ev := integrations.EventRunStopped
 		if status == "COMPLETED" {
@@ -419,6 +436,58 @@ func (o *RunnerOrchestrator) Stop(ctx context.Context, runID, status string) err
 		})
 	}
 	return nil
+}
+
+func (o *RunnerOrchestrator) persistRunArtifact(ctx context.Context, runID string, meta runMeta, status string, snap simulate.LiveMetrics) {
+	summary := map[string]interface{}{
+		"runId":           runID,
+		"testId":          meta.testID,
+		"projectId":       meta.projectID,
+		"status":          status,
+		"engine":          meta.engineName,
+		"startedAt":       meta.startedAt.UTC().Format(time.RFC3339),
+		"completedAt":     time.Now().UTC().Format(time.RFC3339),
+		"duration":        snap.Duration,
+		"throughput":      snap.Throughput,
+		"avgResponseTime": snap.AvgResponseTime,
+		"p50":             snap.P50,
+		"p90":             snap.P90,
+		"p95":             snap.P95,
+		"p99":             snap.P99,
+		"errorRate":       snap.ErrorRate,
+		"activeVUsers":    snap.ActiveVUsers,
+	}
+	body, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		return
+	}
+	objectKey := fmt.Sprintf("runs/%s/summary.json", runID)
+	bucket := storage.BucketResults
+	if o.storage != nil {
+		if err := o.storage.Put(ctx, bucket, objectKey, bytes.NewReader(body), "application/json"); err != nil {
+			log.Printf("[runner] artifact put run=%s: %v", runID, err)
+		} else {
+			log.Printf("[runner] artifact stored run=%s key=%s", runID, objectKey)
+		}
+	}
+	artID := uuid.New().String()
+	if o.artifacts != nil {
+		_, err := o.artifacts.Create(ctx, &queries.Artifact{
+			ID: artID, RunID: runID, Name: "run-summary.json", Kind: "summary",
+			ContentType: "application/json", SizeBytes: int64(len(body)),
+			Bucket: bucket, ObjectKey: objectKey,
+			URL: fmt.Sprintf("/api/artifacts/content?runId=%s&key=%s", url.QueryEscape(runID), url.QueryEscape(objectKey)),
+		})
+		if err != nil {
+			log.Printf("[runner] artifact db run=%s: %v", runID, err)
+		}
+	}
+	if o.artifactMeta != nil {
+		o.artifactMeta.Put(&platform.Artifact{
+			ID: artID, RunID: runID, Name: "run-summary.json", Type: "report",
+			SizeBytes: int64(len(body)), URI: objectKey,
+		})
+	}
 }
 
 // LiveSnapshot returns the latest metrics for a run (for API polling).

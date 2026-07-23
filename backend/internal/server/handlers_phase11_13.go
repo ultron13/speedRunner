@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/belo/speedrunner/backend/internal/db/queries"
 	"github.com/belo/speedrunner/backend/internal/platform"
 )
 
@@ -47,11 +48,32 @@ func (s *Server) tenantsHandler(w http.ResponseWriter, r *http.Request) {
 		if t.ID == "" {
 			t.ID = uuid.New().String()
 		}
+		// Durable Postgres when available
+		if s.TenantDB != nil {
+			out, err := s.TenantDB.Upsert(r.Context(), &queries.Tenant{
+				ID: t.ID, Name: t.Name, Plan: t.Plan, Region: t.Region, Status: t.Status,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusCreated, out)
+			return
+		}
 		if err := s.Tenants.Upsert(&t); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusCreated, t)
+		return
+	}
+	if s.TenantDB != nil {
+		list, err := s.TenantDB.List(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, list)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.Tenants.List())

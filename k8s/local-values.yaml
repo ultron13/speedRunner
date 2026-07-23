@@ -98,7 +98,10 @@ backend:
       cpu: 250m
       memory: 256Mi
   engine:
+    mode: auto
     jmeterImage: speedrunner/jmeter:latest
+    k6Image: grafana/k6:latest
+  artifactDir: /tmp/speedrunner-artifacts
 
 # Redis
 redis:

@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Download, GitCompareArrows, History, Play, Copy } from "lucide-react";
+import { Bug, Download, GitCompareArrows, History, Play, Copy, FileJson } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { apiClient, isGoBackendEnabled } from "@/lib/api-client";
 import { exportRunsToCSV } from "@/lib/export";
 import { formatDuration, formatMetric } from "@/lib/utils";
 import { useTestStore } from "@/store/test-store";
@@ -16,6 +17,7 @@ import { StatusBadge } from "./ActiveTestsTable";
 
 export function RecentRunsTable() {
   const [dateFilter, setDateFilter] = useState("");
+  const [actionMsg, setActionMsg] = useState("");
   const allRuns = useTestStore((state) => state.runs);
   const selectedRunIds = useTestStore((state) => state.selectedRunIds);
   const toggleRunSelection = useTestStore((state) => state.toggleRunSelection);
@@ -56,8 +58,55 @@ export function RecentRunsTable() {
     void cloneTestConfig(testId);
   };
 
+  const handleJiraDefect = async (run: {
+    id: string;
+    testName: string;
+    errorRate: number;
+    avgResponseTime: number;
+  }) => {
+    if (!isGoBackendEnabled()) {
+      setActionMsg("Connect NEXT_PUBLIC_API_URL to file Jira defects against the control plane.");
+      return;
+    }
+    try {
+      const issue = await apiClient.jiraDefectFromRun({
+        projectKey: "PERF",
+        runId: run.id,
+        testName: run.testName,
+        errorRate: run.errorRate,
+        p95: run.avgResponseTime,
+        evidenceURL: `${typeof window !== "undefined" ? window.location.origin : ""}/runs`,
+      });
+      setActionMsg(`Jira defect filed: ${String(issue.key ?? "ok")}`);
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : "Jira defect failed");
+    }
+  };
+
+  const handleArtifacts = async (runId: string) => {
+    if (!isGoBackendEnabled()) {
+      setActionMsg("Artifacts require Go API mode.");
+      return;
+    }
+    try {
+      const list = await apiClient.getArtifacts(runId);
+      setActionMsg(
+        Array.isArray(list) && list.length
+          ? `Artifacts (${list.length}): ${list.map((a) => String((a as { name?: string }).name || (a as { Name?: string }).Name || "file")).join(", ")}`
+          : "No artifacts for this run yet (stop a running test to generate summary.json).",
+      );
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : "List artifacts failed");
+    }
+  };
+
   return (
     <section aria-labelledby="recent-runs-heading">
+      {actionMsg && (
+        <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-100" role="status">
+          {actionMsg}
+        </p>
+      )}
       <Card className="gap-0 py-0">
         <CardHeader className="flex flex-row items-center justify-between px-5 py-4">
           <CardTitle id="recent-runs-heading" className="text-base">Recent Runs</CardTitle>
@@ -161,6 +210,26 @@ export function RecentRunsTable() {
                           >
                             <Copy className="size-3.5 text-slate-400" />
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => void handleArtifacts(run.id)}
+                            title="List run artifacts"
+                            aria-label={`Artifacts for ${run.testName}`}
+                          >
+                            <FileJson className="size-3.5 text-sky-600" />
+                          </Button>
+                          {(run.status === "failed" || run.errorRate >= 2) && (
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              onClick={() => void handleJiraDefect(run)}
+                              title="File Jira defect from run"
+                              aria-label={`Jira defect for ${run.testName}`}
+                            >
+                              <Bug className="size-3.5 text-orange-600" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

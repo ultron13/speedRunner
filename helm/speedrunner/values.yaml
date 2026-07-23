@@ -203,7 +203,10 @@ backend:
       cpu: 500m
       memory: 512Mi
   engine:
+    mode: auto
     jmeterImage: speedrunner/jmeter:latest
+    k6Image: grafana/k6:latest
+  artifactDir: /tmp/speedrunner-artifacts
 
 # MinIO object storage (optional)
 minio:

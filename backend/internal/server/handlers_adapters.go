@@ -11,9 +11,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/belo/speedrunner/backend/internal/auth"
+	"github.com/belo/speedrunner/backend/internal/db/queries"
 	"github.com/belo/speedrunner/backend/internal/integrations/jira"
 	"github.com/belo/speedrunner/backend/internal/scim"
 )
@@ -95,18 +95,11 @@ func (s *Server) completeOIDCLogin(w http.ResponseWriter, r *http.Request, code,
 	userID := uuid.New().String()
 	role := string(auth.RoleReadOnly)
 	if s.Users != nil {
-		existing, _ := s.Users.GetByEmail(r.Context(), email)
-		if existing != nil {
-			userID = existing.ID
-			role = existing.Role
-		} else {
-			// provision on first SSO login
-			hash, _ := bcrypt.GenerateFromPassword([]byte(uuid.New().String()), bcrypt.DefaultCost)
-			u, err := s.Users.Create(r.Context(), userID, email, name, string(hash), role)
-			if err == nil && u != nil {
-				userID = u.ID
-				role = u.Role
-			}
+		// Durable OIDC provision (create or update DB user)
+		u, err := s.Users.UpsertOIDC(r.Context(), userID, email, name, role)
+		if err == nil && u != nil {
+			userID = u.ID
+			role = u.Role
 		}
 	}
 
@@ -193,19 +186,84 @@ func (s *Server) scimServiceProviderConfig(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) scimListUsers(w http.ResponseWriter, r *http.Request) {
 	if s.SCIMUsers == nil {
-		s.SCIMUsers = scim.NewStore("/scim/v2")
+		s.SCIMUsers = scim.NewStore("/api/scim/v2")
 	}
 	start, _ := strconv.Atoi(r.URL.Query().Get("startIndex"))
 	count, _ := strconv.Atoi(r.URL.Query().Get("count"))
 	filter := r.URL.Query().Get("filter")
+	if s.Users != nil {
+		users, err := s.Users.List(r.Context(), 200)
+		if err == nil {
+			resources := make([]*scim.User, 0, len(users))
+			for i := range users {
+				resources = append(resources, dbUserToSCIM(&users[i]))
+			}
+			if filter != "" {
+				filtered := make([]*scim.User, 0)
+				for _, ru := range resources {
+					if strings.Contains(strings.ToLower(ru.UserName), strings.ToLower(filter)) ||
+						strings.Contains(strings.ToLower(ru.DisplayName), strings.ToLower(filter)) {
+						filtered = append(filtered, ru)
+					}
+				}
+				resources = filtered
+			}
+			if start < 1 {
+				start = 1
+			}
+			if count <= 0 {
+				count = 100
+			}
+			from := start - 1
+			if from > len(resources) {
+				from = len(resources)
+			}
+			to := from + count
+			if to > len(resources) {
+				to = len(resources)
+			}
+			page := resources[from:to]
+			writeSCIM(w, http.StatusOK, scim.ListResponse{
+				Schemas: []string{scim.SchemaListResp}, TotalResults: len(resources),
+				StartIndex: start, ItemsPerPage: len(page), Resources: page,
+			})
+			return
+		}
+	}
 	writeSCIM(w, http.StatusOK, s.SCIMUsers.List(filter, start, count))
+}
+
+func dbUserToSCIM(u *queries.User) *scim.User {
+	return &scim.User{
+		Schemas:     []string{scim.SchemaUser},
+		ID:          u.ID,
+		ExternalID:  u.SCIMExternalID,
+		UserName:    u.Email,
+		DisplayName: u.Name,
+		Active:      u.Active,
+		Emails:      []scim.Email{{Value: u.Email, Primary: true, Type: "work"}},
+		Name:        &scim.Name{Formatted: u.Name},
+		Roles:       []map[string]string{{"value": u.Role, "display": u.Role}},
+		Meta: scim.Meta{
+			ResourceType: "User",
+			Created:      u.CreatedAt.UTC().Format(time.RFC3339),
+			LastModified: u.UpdatedAt.UTC().Format(time.RFC3339),
+			Location:     "/api/scim/v2/Users/" + u.ID,
+		},
+	}
 }
 
 func (s *Server) scimGetUser(w http.ResponseWriter, r *http.Request) {
 	if s.SCIMUsers == nil {
-		s.SCIMUsers = scim.NewStore("/scim/v2")
+		s.SCIMUsers = scim.NewStore("/api/scim/v2")
 	}
 	id := chi.URLParam(r, "id")
+	if s.Users != nil {
+		if u, err := s.Users.GetByID(r.Context(), id); err == nil && u != nil {
+			writeSCIM(w, http.StatusOK, dbUserToSCIM(u))
+			return
+		}
+	}
 	u, ok := s.SCIMUsers.Get(id)
 	if !ok {
 		writeSCIMError(w, http.StatusNotFound, "User not found")
@@ -216,7 +274,7 @@ func (s *Server) scimGetUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) scimCreateUser(w http.ResponseWriter, r *http.Request) {
 	if s.SCIMUsers == nil {
-		s.SCIMUsers = scim.NewStore("/scim/v2")
+		s.SCIMUsers = scim.NewStore("/api/scim/v2")
 	}
 	var u scim.User
 	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
@@ -224,17 +282,24 @@ func (s *Server) scimCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created := s.SCIMUsers.Create(&u)
-	// Optionally provision into app users table
-	if s.Users != nil && len(created.Emails) > 0 {
-		email := strings.ToLower(created.Emails[0].Value)
-		existing, _ := s.Users.GetByEmail(r.Context(), email)
-		if existing == nil {
-			hash, _ := bcrypt.GenerateFromPassword([]byte(uuid.New().String()), bcrypt.DefaultCost)
-			name := created.DisplayName
-			if name == "" {
-				name = created.UserName
+	if s.Users != nil {
+		email := strings.ToLower(created.UserName)
+		if len(created.Emails) > 0 {
+			email = strings.ToLower(created.Emails[0].Value)
+		}
+		name := created.DisplayName
+		if name == "" {
+			name = created.UserName
+		}
+		role := string(auth.RoleReadOnly)
+		if len(created.Roles) > 0 {
+			if v := created.Roles[0]["value"]; v != "" {
+				role = v
 			}
-			_, _ = s.Users.Create(r.Context(), created.ID, email, name, string(hash), string(auth.RoleReadOnly))
+		}
+		if dbU, err := s.Users.UpsertSCIM(r.Context(), created.ID, email, name, role, created.ExternalID, created.Active); err == nil && dbU != nil {
+			writeSCIM(w, http.StatusCreated, dbUserToSCIM(dbU))
+			return
 		}
 	}
 	writeSCIM(w, http.StatusCreated, created)
@@ -260,13 +325,27 @@ func (s *Server) scimReplaceUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) scimPatchUser(w http.ResponseWriter, r *http.Request) {
 	if s.SCIMUsers == nil {
-		s.SCIMUsers = scim.NewStore("/scim/v2")
+		s.SCIMUsers = scim.NewStore("/api/scim/v2")
 	}
 	id := chi.URLParam(r, "id")
 	var patch scim.PatchOp
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 		writeSCIMError(w, http.StatusBadRequest, "invalid body")
 		return
+	}
+	if s.Users != nil {
+		for _, op := range patch.Operations {
+			path, _ := op["path"].(string)
+			if strings.EqualFold(path, "active") {
+				if v, ok := op["value"].(bool); ok {
+					_ = s.Users.SetActive(r.Context(), id, v)
+				}
+			}
+		}
+		if u, err := s.Users.GetByID(r.Context(), id); err == nil && u != nil {
+			writeSCIM(w, http.StatusOK, dbUserToSCIM(u))
+			return
+		}
 	}
 	out, err := s.SCIMUsers.Patch(id, patch.Operations)
 	if err != nil {

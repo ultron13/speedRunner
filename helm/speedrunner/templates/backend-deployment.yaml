@@ -52,8 +52,14 @@ spec:
               value: marathonrunner-execution
             - name: K8S_SYSTEM_NS
               value: marathonrunner-system
+            - name: ENGINE_MODE
+              value: {{ .Values.backend.engine.mode | default "auto" | quote }}
             - name: JMETER_IMAGE
               value: {{ .Values.backend.engine.jmeterImage | default "speedrunner/jmeter:latest" }}
+            - name: K6_IMAGE
+              value: {{ .Values.backend.engine.k6Image | default "grafana/k6:latest" }}
+            - name: ARTIFACT_DIR
+              value: {{ .Values.backend.artifactDir | default "/tmp/speedrunner-artifacts" | quote }}
             - name: NODE_ENV
               value: {{ .Values.env.NODE_ENV | default "production" }}
             - name: LOG_LEVEL

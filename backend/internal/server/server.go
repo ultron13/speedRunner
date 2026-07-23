@@ -32,6 +32,7 @@ import (
 	redisclient "github.com/belo/speedrunner/backend/internal/redis"
 	"github.com/belo/speedrunner/backend/internal/region"
 	"github.com/belo/speedrunner/backend/internal/scim"
+	"github.com/belo/speedrunner/backend/internal/storage"
 	"github.com/belo/speedrunner/backend/internal/testdata"
 	"github.com/belo/speedrunner/backend/internal/telemetry"
 )
@@ -55,6 +56,9 @@ type Server struct {
 	Pools        *queries.PoolQueries
 	Applications *queries.ApplicationQueries
 	Reports      *queries.ReportQueries
+	TenantDB     *queries.TenantQueries
+	ArtifactDB   *queries.ArtifactQueries
+	ObjectStore  storage.ObjectStorage
 	Runner       *RunnerOrchestrator
 	Webhooks     *integrations.Dispatcher
 	Cost         *cost.Estimator
@@ -169,6 +173,7 @@ func New(deps Deps) *Server {
 		Annotations:    platform.NewAnnotationStore(),
 		DeadLetters:    platform.NewDeadLetterQueue(),
 		AssetVersions:  platform.NewAssetVersionStore(),
+		ObjectStore:    storage.NewDefaultObjectStorage(),
 	}
 	if deps.Config != nil {
 		s.Policy = policy.DefaultEnterpriseEngine(deps.Config.Engine.MaxVUs)
@@ -205,6 +210,8 @@ func New(deps Deps) *Server {
 		s.Pools = queries.NewPoolQueries(pool)
 		s.Applications = queries.NewApplicationQueries(pool)
 		s.Reports = queries.NewReportQueries(pool)
+		s.TenantDB = queries.NewTenantQueries(pool)
+		s.ArtifactDB = queries.NewArtifactQueries(pool)
 		mode := "simulate"
 		jmImage, k6Image, ns := "", "", ""
 		if deps.Config != nil {
@@ -214,16 +221,19 @@ func New(deps Deps) *Server {
 			ns = deps.Config.K8s.ExecutionNS
 		}
 		s.Runner = NewRunnerOrchestrator(RunnerConfig{
-			Mode:        mode,
-			K8s:         deps.K8s,
-			Namespace:   ns,
-			JMeterImage: jmImage,
-			K6Image:     k6Image,
-			Runs:        s.Runs,
-			Tests:       s.Tests,
-			SLA:         s.SLA,
-			Redis:       deps.Redis,
-			Webhooks:    s.Webhooks,
+			Mode:         mode,
+			K8s:          deps.K8s,
+			Namespace:    ns,
+			JMeterImage:  jmImage,
+			K6Image:      k6Image,
+			Runs:         s.Runs,
+			Tests:        s.Tests,
+			SLA:          s.SLA,
+			Redis:        deps.Redis,
+			Webhooks:     s.Webhooks,
+			Storage:      s.ObjectStore,
+			Artifacts:    s.ArtifactDB,
+			ArtifactMeta: s.Artifacts,
 		})
 		// Kubernetes-style operator reconciler (in-process)
 		s.Operator = operator.NewReconciler(&runnerExecutor{runner: s.Runner, tests: s.Tests})
@@ -480,6 +490,7 @@ func (s *Server) setupRoutes() {
 			r.With(s.requirePermission("run:execute")).Post("/notifications", s.notificationsHandler)
 			r.With(s.requirePermission("run:read")).Get("/artifacts", s.artifactsHandler)
 			r.With(s.requirePermission("run:execute")).Post("/artifacts", s.artifactsHandler)
+			r.With(s.requirePermission("run:read")).Get("/artifacts/content", s.artifactContentHandler)
 			r.With(s.requirePermission("admin:read")).Post("/security/utils", s.securityUtilsHandler)
 			r.With(s.requirePermission("run:read")).Post("/chargeback", s.chargebackHandler)
 			r.With(s.requirePermission("admin:read")).Get("/retention", s.retentionHandler)

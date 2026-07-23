@@ -1,58 +1,66 @@
-# Dependencies
+# Dependencies (any depth — critical: frontend/node_modules is ~1GB)
+**/node_modules
 node_modules
 npm-debug.log*
 
-# Next.js
+# Next.js build artifacts (frontend/.next is ~1GB)
+**/.next
 .next
 out
 
 # Testing
+**/coverage
+**/test-results
+**/playwright-report
+**/playwright/.cache
 coverage
 test-results
 playwright-report
 
 # Build
+**/dist
+**/build
 dist
 build
 
-# IDE
+# IDE / OS
 .vscode
 .idea
 *.swp
 *.swo
-
-# OS
 .DS_Store
 Thumbs.db
 
 # Environment
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
 
 # Documentation
 *.md
 LICENSE
 
-# Docker
+# Docker compose (not needed in image context)
 docker-compose*.yml
-Dockerfile
-Dockerfile.dev
-.dockerignore
 
 # Git
 .git
 .gitignore
 
-# Kubernetes (not needed in image)
+# Not needed for frontend image (built from monorepo root)
+backend/
 k8s/
 helm/
-
-# MiMoCode
+monitoring/
+nginx/
+Implementation/
 .mimocode/
-
-# Miscellaneous
+.grok/
 *.log
 *.cache
+**/.cache
+
+# Go / backend artifacts
+**/*.exe
+**/bin/
+**/vendor/

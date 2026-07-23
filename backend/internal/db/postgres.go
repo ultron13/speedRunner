@@ -208,6 +208,35 @@ func (pg *Postgres) RunMigrations(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_env_project ON environments(project_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_apps_project ON applications(project_id)`,
+		// Vertical-slice durability: tenants, SCIM link, run artifacts
+		`CREATE TABLE IF NOT EXISTS tenants (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			plan TEXT NOT NULL DEFAULT 'team',
+			region TEXT NOT NULL DEFAULT 'local',
+			status TEXT NOT NULL DEFAULT 'active',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS scim_external_id TEXT`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_scim_external ON users(scim_external_id) WHERE scim_external_id IS NOT NULL`,
+		`CREATE TABLE IF NOT EXISTS run_artifacts (
+			id TEXT PRIMARY KEY,
+			run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			kind TEXT NOT NULL DEFAULT 'summary',
+			content_type TEXT NOT NULL DEFAULT 'application/json',
+			size_bytes BIGINT NOT NULL DEFAULT 0,
+			bucket TEXT NOT NULL DEFAULT 'speedrunner-results',
+			object_key TEXT NOT NULL,
+			url TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_artifacts_run ON run_artifacts(run_id)`,
+		`INSERT INTO tenants (id, name, plan, region, status)
+		 VALUES ('default', 'Default Workspace', 'enterprise', 'local', 'active')
+		 ON CONFLICT (id) DO NOTHING`,
 	}
 
 	for _, m := range migrations {

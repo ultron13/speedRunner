@@ -122,6 +122,15 @@ func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !user.Active {
+		writeError(w, http.StatusUnauthorized, "account disabled")
+		return
+	}
+	// SSO-only accounts have placeholder hashes
+	if strings.HasPrefix(user.PasswordHash, "!") {
+		writeError(w, http.StatusUnauthorized, "use SSO login for this account")
+		return
+	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return

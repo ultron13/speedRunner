@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"time"
 
@@ -230,7 +231,52 @@ func (s *Server) artifactsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runID := r.URL.Query().Get("runId")
+	// Prefer durable DB index of run artifacts
+	if s.ArtifactDB != nil {
+		if runID != "" {
+			list, err := s.ArtifactDB.ListByRun(r.Context(), runID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, list)
+			return
+		}
+		list, err := s.ArtifactDB.ListRecent(r.Context(), 50)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, list)
+		return
+	}
 	writeJSON(w, http.StatusOK, s.Artifacts.ListByRun(runID))
+}
+
+// GET /api/artifacts/content?runId=&key= — stream artifact bytes from object store
+func (s *Server) artifactContentHandler(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "key required")
+		return
+	}
+	if s.ObjectStore == nil {
+		writeError(w, http.StatusServiceUnavailable, "object store unavailable")
+		return
+	}
+	rc, err := s.ObjectStore.Get(r.Context(), "speedrunner-results", key)
+	if err != nil {
+		// try artifacts bucket
+		rc, err = s.ObjectStore.Get(r.Context(), "speedrunner-artifacts", key)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "artifact not found")
+			return
+		}
+	}
+	defer rc.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, rc)
 }
 
 func (s *Server) securityUtilsHandler(w http.ResponseWriter, r *http.Request) {

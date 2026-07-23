@@ -1,6 +1,8 @@
 # SpeedRunner Enterprise — Full Implementation Guide
 
-This document turns the requirements in `Agents.md` into a build-ready plan for the complete SpeedRunner Enterprise MVP. The application is a client-side Next.js dashboard located in `frontend/`; it uses mock data and a local simulation engine only—no backend or external API is required.
+> **Historical MVP note (2026-07):** This document describes the original **client-only mock** plan from `Agents.md`. The live architecture is a **Go control plane + Next.js portal + Postgres/Redis + Helm**. Prefer **`ARCHITECTURE.md`** and **`PHASES.md`** for current truth. Sections below remain useful for UI/UX MVP requirements.
+
+This document originally turned `Agents.md` into a build-ready plan for a client-side Next.js dashboard in `frontend/` with mock data and a local simulation engine.
 
 ## 1. Product outcome
 
